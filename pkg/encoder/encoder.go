@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	MaxFrameSize = 1400
-	HeaderSize   = 8
+	MaxFrameSize       = 1400
+	HeaderSize         = 8
+	MaxDecompressedSize = 100 * 1024 * 1024
 )
 
 var (
@@ -42,7 +43,8 @@ func Decode(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decompress: %w", err)
 	}
 	defer r.Close()
-	return io.ReadAll(r)
+	limited := io.LimitReader(r, MaxDecompressedSize)
+	return io.ReadAll(limited)
 }
 
 func SplitIntoFrames(data []byte, maxPayloadSize int) ([]Frame, error) {

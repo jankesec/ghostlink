@@ -6,9 +6,12 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/byjanke/ghostlink/pkg/traffic"
 )
+
+const defaultDNSTimeout = 10 * time.Second
 
 func init() {
 	Register(DNSChannel, func() Channel {
@@ -113,6 +116,7 @@ func (c *dnsChannel) Send(data []byte) error {
 		if c.listenConn == nil || c.clientAddr == nil {
 			return fmt.Errorf("dns server: not connected to client")
 		}
+		c.listenConn.SetWriteDeadline(time.Now().Add(defaultDNSTimeout))
 		_, err := c.listenConn.WriteToUDP(query, c.clientAddr)
 		c.normalizer.RecordSend()
 		return err
@@ -121,6 +125,7 @@ func (c *dnsChannel) Send(data []byte) error {
 	if c.conn == nil {
 		return fmt.Errorf("dns: not connected")
 	}
+	c.conn.SetWriteDeadline(time.Now().Add(defaultDNSTimeout))
 	_, err := c.conn.Write(query)
 	c.normalizer.RecordSend()
 	return err
@@ -138,6 +143,7 @@ func (c *dnsChannel) Recv() ([]byte, error) {
 	if c.conn == nil {
 		return nil, fmt.Errorf("dns: not connected")
 	}
+	c.conn.SetReadDeadline(time.Now().Add(defaultDNSTimeout))
 	buf := make([]byte, 1500)
 	n, _, err := c.conn.ReadFromUDP(buf)
 	if err != nil {
@@ -189,18 +195,26 @@ func (l *dnsListener) Listen(addr string) error {
 		return fmt.Errorf("dns listen: %w", err)
 	}
 	l.conn = conn
+	l.mu.Lock()
 	l.running = true
+	l.mu.Unlock()
 
 	go l.dispatch()
 	return nil
 }
 
+func (l *dnsListener) isRunning() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.running
+}
+
 func (l *dnsListener) dispatch() {
 	buf := make([]byte, 1500)
-	for l.running {
+	for l.isRunning() {
 		n, addr, err := l.conn.ReadFromUDP(buf)
 		if err != nil {
-			if !l.running {
+			if !l.isRunning() {
 				return
 			}
 			continue
@@ -247,7 +261,9 @@ func (l *dnsListener) Accept() (Channel, net.Addr, error) {
 }
 
 func (l *dnsListener) Close() error {
+	l.mu.Lock()
 	l.running = false
+	l.mu.Unlock()
 	if l.conn != nil {
 		return l.conn.Close()
 	}

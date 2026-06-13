@@ -1,12 +1,15 @@
 package shell
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os/exec"
 	"sync"
 	"syscall"
 )
+
+const maxCommandOutput = 10 * 1024 * 1024
 
 type Shell struct {
 	cmd    *exec.Cmd
@@ -51,7 +54,34 @@ func Spawn() (*Shell, error) {
 
 func ExecCommand(command string) ([]byte, error) {
 	cmd := exec.Command("/bin/sh", "-c", command)
-	return cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &limitWriter{w: &stdout, max: maxCommandOutput}
+	cmd.Stderr = &limitWriter{w: &stderr, max: maxCommandOutput}
+	err := cmd.Run()
+	output := append(stdout.Bytes(), stderr.Bytes()...)
+	if stdout.Len() >= maxCommandOutput || stderr.Len() >= maxCommandOutput {
+		output = append(output, []byte("\n[...output truncated]")...)
+	}
+	return output, err
+}
+
+type limitWriter struct {
+	w   io.Writer
+	n   int64
+	max int64
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if l.n >= l.max {
+		return len(p), nil
+	}
+	remaining := l.max - l.n
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	n, err := l.w.Write(p)
+	l.n += int64(n)
+	return len(p), err
 }
 
 func (s *Shell) WriteStdin(data []byte) (int, error) {
@@ -85,7 +115,9 @@ func (s *Shell) Close() error {
 	s.stdin.Close()
 	if s.cmd.Process != nil {
 		s.cmd.Process.Signal(syscall.SIGTERM)
-		s.cmd.Wait()
+		if err := s.cmd.Wait(); err != nil {
+			_ = err
+		}
 	}
 	return nil
 }

@@ -98,9 +98,11 @@ func (c *timingChannel) sendPkt(data []byte) error {
 		if c.listenConn == nil || c.clientAddr == nil {
 			return fmt.Errorf("timing server: not connected")
 		}
+		c.listenConn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		_, err := c.listenConn.WriteToUDP(data, c.clientAddr)
 		return err
 	}
+	c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	_, err := c.conn.Write(data)
 	return err
 }
@@ -115,6 +117,7 @@ func (c *timingChannel) Recv() ([]byte, error) {
 		}
 	}
 
+	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	buf := make([]byte, 1)
 	n, _, err := c.conn.ReadFromUDP(buf)
 	if err != nil {

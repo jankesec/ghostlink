@@ -90,12 +90,14 @@ func (c *icmpChannel) Send(data []byte) error {
 		if c.listenConn == nil || c.clientAddr == nil {
 			return fmt.Errorf("icmp server: not connected to client")
 		}
+		c.listenConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		_, err = c.listenConn.WriteTo(b, c.clientAddr)
 		c.seq++
 		c.normalizer.RecordSend()
 		return err
 	}
 
+	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	_, err = c.conn.WriteTo(b, c.peer)
 	c.seq++
 	c.normalizer.RecordSend()
@@ -118,6 +120,7 @@ func (c *icmpChannel) Recv() ([]byte, error) {
 	if c.conn == nil {
 		return nil, fmt.Errorf("icmp: not connected")
 	}
+	c.conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	buf := make([]byte, 1500)
 	n, _, err := c.conn.ReadFrom(buf)
 	if err != nil {

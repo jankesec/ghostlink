@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -95,7 +94,7 @@ func (d *DeadDrop) sendDiscord(data []byte, metadata string) error {
 		if err != nil {
 			return fmt.Errorf("discord: %w", err)
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
 		if resp.StatusCode >= 400 {
 			return fmt.Errorf("discord http %d", resp.StatusCode)
 		}
@@ -174,4 +173,4 @@ func splitContent(content string, chunkSize int) []string {
 	return chunks
 }
 
-var _ = os.Stderr
+

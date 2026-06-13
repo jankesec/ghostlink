@@ -110,4 +110,4 @@ func (m *MultipathSender) Send(data []byte) error {
 	return nil
 }
 
-var _ = time.Now
+

@@ -70,6 +70,7 @@ func (c *httpChannel) Connect(addr string) error {
 	c.isServer = false
 
 	if c.frontDomain != "" {
+		fmt.Printf("[*] domain fronting enabled: SNI=%s (TLS verification may be bypassed for CDN fronting)\n", c.frontDomain)
 		tr := &http.Transport{
 			DisableKeepAlives: false,
 			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -88,8 +89,7 @@ func (c *httpChannel) Connect(addr string) error {
 				}
 
 				tlsCfg := &tls.Config{
-					ServerName:         c.frontDomain,
-					InsecureSkipVerify: true,
+					ServerName: c.frontDomain,
 				}
 				tlsConn := tls.Client(conn, tlsCfg)
 				if err := tlsConn.Handshake(); err != nil {
@@ -154,8 +154,8 @@ func (c *httpChannel) Send(data []byte) error {
 		c.normalizer.RecordSend()
 		return fmt.Errorf("http send: %w", err)
 	}
+	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
 	c.normalizer.RecordSend()
 	return nil
 }
@@ -229,11 +229,9 @@ func (l *httpListener) Listen(addr string) error {
 		default:
 		}
 
-		l.mu.Lock()
 		w.Header().Set("Content-Type", "text/html")
 		w.Header().Set("Server", "nginx/1.24.0")
 		w.Write([]byte("<html><body><h1>OK</h1></body></html>"))
-		l.mu.Unlock()
 	})
 
 	l.server = &http.Server{Addr: addr, Handler: mux}

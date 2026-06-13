@@ -32,6 +32,8 @@ func init() {
 	})
 }
 
+const dohResponseTimeout = 100 * time.Millisecond
+
 type dohChannel struct {
 	resolver   string
 	domain     string
@@ -108,8 +110,8 @@ func (c *dohChannel) sendDirect(data []byte) error {
 		c.normalizer.RecordSend()
 		return fmt.Errorf("doh direct send: %w", err)
 	}
+	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
 	c.normalizer.RecordSend()
 	return nil
 }
@@ -142,8 +144,8 @@ func (c *dohChannel) sendViaDoH(data []byte) error {
 		c.normalizer.RecordSend()
 		return fmt.Errorf("doh send: %w", err)
 	}
+	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
 	c.normalizer.RecordSend()
 	return nil
 }
@@ -262,7 +264,7 @@ func (l *dohListener) Listen(addr string) error {
 		var respData []byte
 		select {
 		case respData = <-sc.sendCh:
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(dohResponseTimeout):
 		}
 
 		w.Header().Set("Content-Type", "application/dns-message")

@@ -29,6 +29,8 @@ func init() {
 	})
 }
 
+const wsHandshakeTimeout = 10 * time.Second
+
 type wsChannel struct {
 	conn       net.Conn
 	normalizer *traffic.Normalizer
@@ -88,7 +90,7 @@ func (c *wsChannel) Connect(addr string) error {
 		return fmt.Errorf("ws handshake write: %w", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(wsHandshakeTimeout))
 	reader := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -113,6 +115,7 @@ func (c *wsChannel) Send(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	frame := buildWSFrame(data, !c.isServer)
 	_, err := c.conn.Write(frame)
 	c.normalizer.RecordSend()

