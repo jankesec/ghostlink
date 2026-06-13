@@ -18,3 +18,10 @@ Thumbs.db
 # Go
 vendor/
 ghostlink-bridge
+
+# Exfiltrated data
+exfiltrated/
+
+# Test coverage
+*.out
+coverage.html
