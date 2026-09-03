@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <a href="#-live-terminal-demo"><b>[ Live Demo ]</b></a> &nbsp;•&nbsp;
   <a href="#-the-threat-model-why-traditional-tools-fail"><b>[ Threat Model ]</b></a> &nbsp;•&nbsp;
   <a href="#-the-9-covert-channels"><b>[ Covert Channels ]</b></a> &nbsp;•&nbsp;
   <a href="#-architecture--pipeline"><b>[ Architecture ]</b></a> &nbsp;•&nbsp;
@@ -25,6 +26,11 @@
   <a href="#-covert-c2--interactive-operations"><b>[ Covert C2 ]</b></a> &nbsp;•&nbsp;
   <a href="#-sqli-oob-engine--sqlmap-bridge"><b>[ SQLi Bridge ]</b></a> &nbsp;•&nbsp;
   <a href="#-comparison"><b>[ Comparison ]</b></a>
+</p>
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Ghostlink Multi-Channel Covert Exfiltration & C2 Demo" width="900" style="border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.7);">
+  <br><sub>Interactive Covert C2 Session & OOB DNS Exfiltration verified with SHA-256 Proof of Exfil</sub>
 </p>
 
 </div>
@@ -144,6 +150,16 @@ Ghostlink maps across critical tactics and techniques defined in the MITRE ATT&C
 | **Defense Evasion** | Domain Fronting | [T1090.004](https://attack.mitre.org/techniques/T1090/004/) | CDN SNI camouflage (`-front ajax.googleapis.com`) |
 | **Defense Evasion** | Traffic Signaling | [T1205](https://attack.mitre.org/techniques/T1205/) | Canary tripwire alerting and automated channel self-silencing |
 | **Collection** | Automated Data Collection | [T1119](https://attack.mitre.org/techniques/T1119/) | Glob search with regex content filtering (`-exfil-glob`) |
+
+---
+
+## 🎬 Live Terminal Demo
+
+The recording below demonstrates an operational sequence: binding an authoritative DNS covert listener on port `5353` with AES-256-GCM encryption, receiving an inbound covert session with forward error correction (FEC), verifying an exfiltrated `.env` file with SHA-256 proof of exfil, dispatching the in-memory `sysinfo` module, and generating live MySQL DNS OOB injection queries:
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Ghostlink Live Terminal Session" width="900" style="border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.7);">
+</p>
 
 ---
 
