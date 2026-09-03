@@ -27,13 +27,17 @@ time.sleep(0.3)
 fast(f"{CYAN}jankesec@c2-node{RESET}:{BLUE}~/ghostlink{RESET}# {BOLD}./ghostlink-server -channel dns -addr 0.0.0.0:5353 -key op -api 127.0.0.1:8888{RESET}")
 time.sleep(0.4)
 
-banner = f"""{MAGENTA}{BOLD}  ________    __                  __  ___      __
- / ____/ /_  / /_  ___  _____/ /_/   /____  / /
-/ / __/ __ \\/ __ \\/ _ \\/ ___/ __/ / / / __ \\/ / 
-/ /_/ / / / / /_/ /  __/ /__/ /_/ / / / /_/ / /  
-\\____/_/ /_/_.___/\\___/\\___/\\__/_/_/_/ .___/_/   
-   {CYAN}Covert C2 & OOB Exfil Framework v1.0.1{MAGENTA}   /_/          {RESET}"""
-fast(banner)
+banner_art = [
+    r"   _______                 __  ___       __  ",
+    r"  / ____/ /_  ____  _____/ /_/ (_)____  / /__",
+    r" / / __/ __ \/ __ \/ ___/ __/ / / __ \/ //_/",
+    r"/ /_/ / / / / /_/ (__  ) /_/ / / / / / ,<   ",
+    r"\____/_/ /_/\____/____/\__/_/_/_/ /_/_/|_|  ",
+]
+fast(f"{MAGENTA}{BOLD}")
+for line in banner_art:
+    fast(line)
+fast(f"   {CYAN}Covert C2 & OOB Exfil Framework v1.0.1{RESET}\n")
 time.sleep(0.2)
 fast(f"{BLUE}[*]{RESET} Covert Channel: {GREEN}dns (TXT tunnel){RESET} | Listen: {YELLOW}0.0.0.0:5353{RESET} | Crypto: {GREEN}AES-256-GCM{RESET}")
 fast(f"{BLUE}[*]{RESET} Forward Error Correction (FEC): {GREEN}Active (XOR Parity - 33% Tolerance){RESET}")

@@ -363,12 +363,12 @@ Continuous channel health monitoring detect defensive inspection or DNS blackhol
 ### 5. Multi-Session Interactive Console
 
 ```text
-  ________    __                  __  ___      __
- / ____/ /_  / /_  ___  _____/ /_/   /____  / /
-/ / __/ __ \/ __ \/ _ \/ ___/ __/ / / / __ \/ / 
-/ /_/ / / / / /_/ /  __/ /__/ /_/ / / / /_/ / /  
-\____/_/ /_/_.___/\___/\___/\__/_/_/_/ .___/_/   
-   Covert C2 Console v1.0.1         /_/          
+   _______                 __  ___       __  
+  / ____/ /_  ____  _____/ /_/ (_)____  / /__
+ / / __/ __ \/ __ \/ ___/ __/ / / __ \/ //_/
+/ /_/ / / / / /_/ (__  ) /_/ / / / / / ,<   
+\____/_/ /_/\____/____/\__/_/_/_/ /_/_/|_|  
+   Covert C2 Console v1.0.1          
 
 [*] Channel: dns | Listen: 0.0.0.0:16353 | Crypto: ECDHE-P256 | Proto: v2
 [+] Session #1 established from 192.168.10.45:51284 (Hostname: PROD-DB01)
