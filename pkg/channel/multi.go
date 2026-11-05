@@ -177,4 +177,3 @@ func (m *MultiChannel) ChannelCount() int {
 func (m *MultiChannel) Connect(addr string) error {
 	return m.ConnectAll(addr)
 }
-

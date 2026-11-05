@@ -1,6 +1,8 @@
 # Binaries
 /ghostlink-server
 /ghostlink-client
+/bin/
+/dist/
 *.exe
 *.test
 *.out

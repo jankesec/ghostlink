@@ -12,11 +12,11 @@ import (
 const maxCommandOutput = 10 * 1024 * 1024
 
 type Shell struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr io.ReadCloser
-	mu     sync.Mutex
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
+	mu      sync.Mutex
 	running bool
 }
 

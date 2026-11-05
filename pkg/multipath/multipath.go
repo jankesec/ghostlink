@@ -50,10 +50,10 @@ func (m *MultipathSender) Send(data []byte) error {
 	fecBlock, err := encoder.XOREncode(data, m.fecData, m.fecTotal)
 	if err != nil {
 		fecBlock = &encoder.FECBlock{
-			DataShards: 1,
-			TotalShards: 1,
-			ShardSize: len(data),
-			Shards:    [][]byte{data},
+			DataShards:   1,
+			TotalShards:  1,
+			ShardSize:    len(data),
+			Shards:       [][]byte{data},
 			ParityShards: [][]byte{},
 		}
 	}
@@ -73,10 +73,10 @@ func (m *MultipathSender) Send(data []byte) error {
 		go func(shardData []byte, ch channel.Channel, ses *crypto.Session) {
 			defer wg.Done()
 			payload := encoder.MarshalFECBlock(&encoder.FECBlock{
-				DataShards:  fecBlock.DataShards,
-				TotalShards: len(allShards),
-				ShardSize:  len(shardData),
-				Shards:     [][]byte{shardData},
+				DataShards:   fecBlock.DataShards,
+				TotalShards:  len(allShards),
+				ShardSize:    len(shardData),
+				Shards:       [][]byte{shardData},
 				ParityShards: [][]byte{},
 			})
 			encoded, _ := encoder.Encode(payload)
@@ -109,5 +109,3 @@ func (m *MultipathSender) Send(data []byte) error {
 
 	return nil
 }
-
-

