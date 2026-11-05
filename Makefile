@@ -1,4 +1,4 @@
-.PHONY: build check demo fmt fmt-check record-demo test vet
+.PHONY: build check demo fmt fmt-check race record-demo test vet
 
 BIN_DIR := bin
 
@@ -9,7 +9,7 @@ build:
 	go build -trimpath -o $(BIN_DIR)/ghostlink-client ./cmd/client
 	go build -trimpath -o $(BIN_DIR)/ghostlink-bridge ./bridge
 
-check: fmt-check vet test
+check: fmt-check vet test race
 
 demo:
 	go run ./cmd/demo
@@ -22,6 +22,9 @@ fmt-check:
 
 record-demo:
 	vhs docs/demo.tape
+
+race:
+	go test -race ./...
 
 test:
 	go test ./...
