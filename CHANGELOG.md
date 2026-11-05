@@ -3,6 +3,14 @@
 All notable changes to Ghostlink are documented in this file. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-11-06
+
+### Changed
+
+- Reframed the terminal demo as a clear input-to-verified-output story.
+- Added explicit zero-network boundaries and explained what the result does not prove.
+- Updated pinned GitHub Actions to their Node 24-based releases.
+
 ## [1.1.0] - 2026-11-06
 
 ### Added
@@ -24,3 +32,4 @@ All notable changes to Ghostlink are documented in this file. The project follow
 - Removed the scripted demo that fabricated sessions and operational results.
 
 [1.1.0]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.0
+[1.1.1]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.1

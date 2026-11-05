@@ -14,16 +14,20 @@ func TestRunDemoValidatesTheOfflinePipeline(t *testing.T) {
 
 	text := output.String()
 	for _, expected := range []string{
-		"LOCAL PIPELINE VALIDATION",
+		"SAFE OFFLINE ROUND TRIP",
+		"Can Ghostlink protect and reconstruct one synthetic lab record?",
+		"0 sockets · 0 targets · 0 external services",
+		"INPUT → COMPRESS → SHARD → FRAME → ENCRYPT → DECRYPT → REBUILD → VERIFY",
 		"Key agreement",
 		"Compression",
 		"Parity layout",
 		"Framing",
 		"Encryption",
 		"Integrity",
+		"VERIFIED OUTPUT",
+		"EXACT MATCH",
 		"6/6 checks passed",
-		"no sockets",
-		"transports are not contacted",
+		"DOES NOT PROVE",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("output missing %q", expected)

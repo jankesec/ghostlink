@@ -14,7 +14,7 @@ parity layouts, and multiple transport implementations inside controlled environ
 
 <img src="docs/demo.gif" alt="Ghostlink offline pipeline validation in a Termius Pro-style terminal" width="100%">
 
-<sub>The demo validates the local cryptographic and framing pipeline with synthetic data. It opens no sockets and contacts no external service.</sub>
+<sub>The demo answers one question: can a synthetic record complete Ghostlink's local protected pipeline and return byte-for-byte intact? It opens no sockets and contacts no external service.</sub>
 
 </div>
 
@@ -50,8 +50,9 @@ It exercises real project packages end to end:
 5. AES-256-GCM authenticated encryption;
 6. reassembly and SHA-256 integrity verification.
 
-The transport registry is displayed for inventory purposes only. No DNS, HTTP, ICMP,
-raw-packet, webhook, or cloud connection is created by the demo.
+No DNS, HTTP, ICMP, raw-packet, webhook, or cloud connection is created by the demo.
+Its final `EXACT MATCH` compares the recovered bytes and SHA-256 digest with the input;
+it does not claim network reliability or stealth.
 
 ## Architecture
 
