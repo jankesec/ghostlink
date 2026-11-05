@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/byjanke/ghostlink/internal/buildinfo"
 )
 
 const banner = `
@@ -25,10 +27,15 @@ const banner = `
 func main() {
 	addr := flag.String("addr", "127.0.0.1:5353", "DNS listen address")
 	output := flag.String("output", "", "save exfiltrated data to file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.String())
+		return
+	}
 
 	fmt.Print(banner)
-	fmt.Printf("[*] ghostlink <> sqlmap bridge\n")
+	fmt.Printf("[*] %s <> sqlmap bridge\n", buildinfo.String())
 	fmt.Printf("[*] listening on %s\n", *addr)
 	fmt.Println("[*] waiting for sqlmap DNS exfiltration queries...")
 

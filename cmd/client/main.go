@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/byjanke/ghostlink/internal/buildinfo"
 	"github.com/byjanke/ghostlink/pkg/beacon"
 	"github.com/byjanke/ghostlink/pkg/channel"
 	"github.com/byjanke/ghostlink/pkg/crypto"
@@ -65,8 +66,13 @@ func main() {
 	multiPathFEC := flag.Bool("multi-path-fec", true, "enable FEC for multi-path exfiltration")
 
 	canary := flag.Bool("canary", false, "enable canary/tripwire mode for channel disruption detection")
+	showVersion := flag.Bool("version", false, "print version and exit")
 
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.String())
+		return
+	}
 
 	if *dnsRecon {
 		runDNSRecon()
@@ -1147,16 +1153,22 @@ func runBeacon(ch channel.Channel, cryptoSes *crypto.Session, profile string) {
 	<-sigCh
 }
 
-func sendMsg(ch channel.Channel, cryptoSes *crypto.Session, msg protocol.Message) {
-	data := protocol.Marshal(msg)
+func sendMsg(ch channel.Channel, cryptoSes *crypto.Session, msg protocol.Message) error {
+	data, err := protocol.MarshalBinary(msg)
+	if err != nil {
+		return fmt.Errorf("encode message: %w", err)
+	}
 	if cryptoSes != nil {
 		enc, err := cryptoSes.Encrypt(data)
 		if err != nil {
-			return
+			return fmt.Errorf("encrypt message: %w", err)
 		}
 		data = enc
 	}
-	ch.Send(data)
+	if err := ch.Send(data); err != nil {
+		return fmt.Errorf("send message: %w", err)
+	}
+	return nil
 }
 
 func recvMsg(ch channel.Channel, cryptoSes *crypto.Session) *protocol.Message {

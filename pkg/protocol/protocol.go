@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -52,13 +53,26 @@ type Message struct {
 	Payload  []byte
 }
 
-func Marshal(m Message) []byte {
+var ErrPayloadTooLarge = errors.New("protocol payload exceeds 65535 bytes")
+
+// MarshalBinary validates and serializes a protocol message.
+func MarshalBinary(m Message) ([]byte, error) {
+	if len(m.Payload) > MaxPayloadSize {
+		return nil, fmt.Errorf("%w: %d", ErrPayloadTooLarge, len(m.Payload))
+	}
 	buf := make([]byte, HeaderSize+len(m.Payload))
 	buf[0] = ProtocolVersion
 	buf[1] = byte(m.Type)
 	binary.BigEndian.PutUint32(buf[2:6], m.StreamID)
 	binary.BigEndian.PutUint16(buf[6:8], uint16(len(m.Payload)))
 	copy(buf[8:], m.Payload)
+	return buf, nil
+}
+
+// Marshal serializes a protocol message. New code should use MarshalBinary so
+// oversized payloads can be handled explicitly.
+func Marshal(m Message) []byte {
+	buf, _ := MarshalBinary(m)
 	return buf
 }
 

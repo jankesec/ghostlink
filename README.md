@@ -5,7 +5,7 @@
 **Authorized lab framework for studying resilient out-of-band transport pipelines**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/jankesec/ghostlink/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/jankesec/ghostlink/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.21%2B-111?style=flat-square&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-111?style=flat-square&logo=go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/jankesec/ghostlink?style=flat-square&label=Release)](https://github.com/jankesec/ghostlink/releases)
 [![License](https://img.shields.io/badge/License-MIT-111?style=flat-square)](LICENSE)
 
@@ -120,7 +120,7 @@ isolated environment before drawing conclusions from it.
 
 ## Build and verify
 
-Go 1.21 or newer is required.
+Go 1.25 or newer is required.
 
 ```bash
 git clone https://github.com/jankesec/ghostlink.git
@@ -128,6 +128,13 @@ cd ghostlink
 
 make check
 make build
+```
+
+Every executable supports `-version`. Release builds include the version, source
+commit, and UTC build date:
+
+```bash
+./bin/ghostlink-demo -version
 ```
 
 The binaries are written to `./bin/`:
@@ -253,6 +260,18 @@ make record-demo
 
 Do not edit `docs/demo.gif` manually. Update the validator or tape, regenerate the asset,
 and visually inspect a final frame.
+
+## Releases
+
+Tag builds are verified again before publication. Each release contains macOS and Linux
+archives for AMD64 and ARM64 plus a SHA-256 checksum manifest. The process is reproducible
+locally with:
+
+```bash
+make release-artifacts VERSION=v1.1.0
+```
+
+Release history is maintained in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Responsible use
 

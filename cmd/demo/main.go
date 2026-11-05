@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/byjanke/ghostlink/internal/buildinfo"
 	"github.com/byjanke/ghostlink/pkg/channel"
 	cryptopkg "github.com/byjanke/ghostlink/pkg/crypto"
 	"github.com/byjanke/ghostlink/pkg/encoder"
@@ -108,11 +109,14 @@ func runDemo(out io.Writer, color bool) error {
 	}
 	receivedFrames := make([]encoder.Frame, 0, len(frames))
 	for _, frame := range frames {
-		wireMessage := protocol.Marshal(protocol.Message{
+		wireMessage, err := protocol.MarshalBinary(protocol.Message{
 			Type:     protocol.MsgExfilChunk,
 			StreamID: 1,
 			Payload:  encoder.MarshalFrame(frame),
 		})
+		if err != nil {
+			return fmt.Errorf("encode protocol message: %w", err)
+		}
 		ciphertext, err := senderSession.Encrypt(wireMessage)
 		if err != nil {
 			return fmt.Errorf("encrypt frame: %w", err)
@@ -200,7 +204,12 @@ func runDemo(out io.Writer, color bool) error {
 
 func main() {
 	noColor := flag.Bool("no-color", false, "disable ANSI color output")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.String())
+		return
+	}
 	info, err := os.Stdout.Stat()
 	color := err == nil && info.Mode()&os.ModeCharDevice != 0 && !*noColor && os.Getenv("NO_COLOR") == ""
 	if err := runDemo(os.Stdout, color); err != nil {
