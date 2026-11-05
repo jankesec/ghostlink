@@ -172,5 +172,3 @@ func splitContent(content string, chunkSize int) []string {
 	}
 	return chunks
 }
-
-

@@ -48,11 +48,11 @@ func NewServer() *Session {
 
 func NewClient(serverAddr string) *Session {
 	return &Session{
-		channels:  make(map[channel.ChannelType]channel.Channel),
-		analyzer:  adaptive.NewEntropyAnalyzer(),
-		state:     StateInit,
-		isServer:  false,
-		peerAddr:  serverAddr,
+		channels: make(map[channel.ChannelType]channel.Channel),
+		analyzer: adaptive.NewEntropyAnalyzer(),
+		state:    StateInit,
+		isServer: false,
+		peerAddr: serverAddr,
 	}
 }
 

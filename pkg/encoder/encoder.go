@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	MaxFrameSize       = 1400
-	HeaderSize         = 8
+	MaxFrameSize        = 1400
+	HeaderSize          = 8
 	MaxDecompressedSize = 100 * 1024 * 1024
 )
 

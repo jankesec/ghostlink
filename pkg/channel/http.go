@@ -35,12 +35,12 @@ func init() {
 }
 
 type httpChannel struct {
-	serverURL  string
-	client     *http.Client
-	normalizer *traffic.Normalizer
+	serverURL   string
+	client      *http.Client
+	normalizer  *traffic.Normalizer
 	frontDomain string
 
-	isServer   bool
+	isServer     bool
 	listenRecvCh chan []byte
 	respDataCh   chan []byte
 	mu           sync.Mutex

@@ -23,7 +23,7 @@ const banner = `
 `
 
 func main() {
-	addr := flag.String("addr", "0.0.0.0:53", "DNS listen address")
+	addr := flag.String("addr", "127.0.0.1:5353", "DNS listen address")
 	output := flag.String("output", "", "save exfiltrated data to file")
 	flag.Parse()
 
@@ -35,9 +35,12 @@ func main() {
 	var outFile *os.File
 	if *output != "" {
 		var err error
-		outFile, err = os.Create(*output)
+		outFile, err = os.OpenFile(*output, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if err != nil {
 			log.Fatalf("output file: %v", err)
+		}
+		if err := outFile.Chmod(0600); err != nil {
+			log.Fatalf("secure output file: %v", err)
 		}
 		defer outFile.Close()
 	}

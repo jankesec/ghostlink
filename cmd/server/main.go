@@ -139,7 +139,7 @@ func (sm *SessionManager) List() []*ManagedSession {
 }
 
 func main() {
-	addr := flag.String("addr", "0.0.0.0:16353", "listen address")
+	addr := flag.String("addr", "127.0.0.1:16353", "listen address")
 	channelType := flag.String("channel", "dns", "channel type: dns, http, icmp, ip_id, timing, packet_size, tcp_isn, websocket, doh")
 	key := flag.String("key", "", "pre-shared key (empty = no encryption)")
 	ecdhe := flag.Bool("ecdhe", false, "automatic ECDH key exchange")
@@ -149,7 +149,9 @@ func main() {
 	flag.Parse()
 
 	if *exfilDir != "" {
-		os.MkdirAll(*exfilDir, 0755)
+		if err := os.MkdirAll(*exfilDir, 0700); err != nil {
+			log.Fatalf("create output directory: %v", err)
+		}
 	}
 
 	if *domain != "" && *channelType == "dns" {
@@ -438,6 +440,24 @@ func sanitizeFileName(name string) string {
 	return name
 }
 
+func writePrivateFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	handle, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+	if err := handle.Chmod(0600); err != nil {
+		return err
+	}
+	if _, err := handle.Write(data); err != nil {
+		return err
+	}
+	return handle.Sync()
+}
+
 func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 	payload := string(msg.Payload)
 	parts := strings.SplitN(payload, "\x00", 3)
@@ -452,11 +472,7 @@ func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 	fmt.Sscanf(sizeStr, "%d", &size)
 
 	destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", filename, s.ID))
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		fmt.Printf("[exfil] save error: %v\n", err)
-		return
-	}
-	if err := os.WriteFile(destPath, data, 0644); err != nil {
+	if err := writePrivateFile(destPath, data); err != nil {
 		fmt.Printf("[exfil] save error: %v\n", err)
 		return
 	}
@@ -481,13 +497,7 @@ func handleExfilGlob(msg protocol.Message, exfilDir string, s *ManagedSession) {
 
 		safePath := sanitizeFileName(f.Path)
 		destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", safePath, s.ID))
-		destDir := filepath.Dir(destPath)
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
-			continue
-		}
-
-		if err := os.WriteFile(destPath, f.Content, 0644); err != nil {
+		if err := writePrivateFile(destPath, f.Content); err != nil {
 			fmt.Printf("  [-] %s: save error: %v\n", f.Path, err)
 			continue
 		}
@@ -723,8 +733,8 @@ func interactiveConsole(mgr *SessionManager, modRegistry *modules.Registry, exfi
 				fmt.Println("usage: sqli <db> <domain> [query]")
 				fmt.Println("  db: mysql, mssql, oracle, postgres")
 			} else {
-			gen := modules.NewSQLiPayloadGenerator()
-			output, err := gen.Run(parts[1:])
+				gen := modules.NewSQLiPayloadGenerator()
+				output, err := gen.Run(parts[1:])
 				if err != nil {
 					fmt.Printf("[-] %v\n", err)
 				} else {
@@ -858,5 +868,3 @@ func (p *c2APIProvider) ListModules() []map[string]string {
 	}
 	return result
 }
-
-

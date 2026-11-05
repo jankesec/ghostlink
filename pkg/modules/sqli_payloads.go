@@ -11,8 +11,10 @@ func NewSQLiPayloadGenerator() *SQLiPayloadGenerator {
 	return &SQLiPayloadGenerator{}
 }
 
-func (s *SQLiPayloadGenerator) Name() string        { return "sqli_payloads" }
-func (s *SQLiPayloadGenerator) Description() string { return "Generate SQLi OOB exfiltration payloads for DNS/HTTP" }
+func (s *SQLiPayloadGenerator) Name() string { return "sqli_payloads" }
+func (s *SQLiPayloadGenerator) Description() string {
+	return "Generate SQLi OOB exfiltration payloads for DNS/HTTP"
+}
 
 func (s *SQLiPayloadGenerator) Run(args []string) ([]byte, error) {
 	if len(args) < 2 {
