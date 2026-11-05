@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/byjanke/ghostlink/internal/buildinfo"
-	"github.com/byjanke/ghostlink/pkg/channel"
 	cryptopkg "github.com/byjanke/ghostlink/pkg/crypto"
 	"github.com/byjanke/ghostlink/pkg/encoder"
 	"github.com/byjanke/ghostlink/pkg/protocol"
@@ -175,30 +173,31 @@ func runDemo(out io.Writer, color bool) error {
 	})
 
 	fmt.Fprintln(out, "┌──────────────────────────────────────────────────────────────────────────────┐")
-	printBoxLine(out, color, ansiBold+ansiCyan, "GHOSTLINK / LOCAL PIPELINE VALIDATION")
-	printBoxLine(out, color, "", "Offline · synthetic payload · no sockets · no external services")
+	printBoxLine(out, color, ansiBold+ansiCyan, "GHOSTLINK / SAFE OFFLINE ROUND TRIP")
+	printBoxLine(out, color, "", "QUESTION  Can Ghostlink protect and reconstruct one synthetic lab record?")
+	printBoxLine(out, color, ansiGreen+ansiBold, "BOUNDARY  0 sockets · 0 targets · 0 external services")
 	fmt.Fprintln(out, "└──────────────────────────────────────────────────────────────────────────────┘")
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%-20s %-9s %s\n", "STAGE", "STATUS", "OBSERVATION")
+	fmt.Fprintln(out, paint(color, ansiBold, "INPUT"))
+	fmt.Fprintf(out, "Synthetic record   %d bytes   SHA-256 %x…\n", len(payload), originalDigest[:6])
+	fmt.Fprintln(out, `"authorized-lab telemetry record" (repeated test data)`)
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, paint(color, ansiBold, "LOCAL DATA FLOW"))
+	fmt.Fprintln(out, "INPUT → COMPRESS → SHARD → FRAME → ENCRYPT → DECRYPT → REBUILD → VERIFY")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "%-20s %-9s %s\n", "STEP", "RESULT", "EVIDENCE")
 	fmt.Fprintln(out, strings.Repeat("─", 78))
 	for _, check := range checks {
 		fmt.Fprintf(out, "%-20s %-9s %s\n", check.stage, paint(color, ansiGreen+ansiBold, "PASS"), check.observation)
 	}
 
-	registered := channel.RegisteredChannels()
-	transports := make([]string, 0, len(registered))
-	for _, transport := range registered {
-		transports = append(transports, string(transport))
-	}
-	sort.Strings(transports)
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, paint(color, ansiBold, "REGISTERED TRANSPORT INVENTORY"))
-	fmt.Fprintln(out, strings.Join(transports, "  ·  "))
-	fmt.Fprintln(out, paint(color, ansiDim, "Inventory only; transports are not contacted by this demo."))
+	fmt.Fprintln(out, paint(color, ansiBold, "VERIFIED OUTPUT"))
+	fmt.Fprintf(out, "Recovered record   %d bytes   SHA-256 %x…   EXACT MATCH\n", len(recovered), recoveredDigest[:6])
+	fmt.Fprintf(out, "%s  %d/%d checks passed; input and output are identical.\n", paint(color, ansiGreen+ansiBold, "PASS"), len(checks), len(checks))
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s  %d/%d checks passed\n", paint(color, ansiGreen+ansiBold, "RESULT"), len(checks), len(checks))
-	fmt.Fprintln(out, "The local cryptographic and framing pipeline preserved the synthetic payload.")
-	fmt.Fprintln(out, paint(color, ansiDim, "Use only in isolated systems you own or are explicitly authorized to test."))
+	fmt.Fprintln(out, paint(color, ansiDim, "PROVES: the local crypto/framing pipeline preserves synthetic data."))
+	fmt.Fprintln(out, paint(color, ansiDim, "DOES NOT PROVE: network reliability, stealth, or real-world deployment safety."))
 	return nil
 }
 
