@@ -1,23 +1,23 @@
-## Ghostlink v1.1.1
+## Ghostlink v1.2.0
 
-This patch makes the safe offline demo understandable at a glance while retaining the
-professional project and release baseline introduced in v1.1.0.
+This release makes Ghostlink easier to understand and safer to operate in an authorized
+lab. The new unified command puts discovery and diagnostics first while keeping every
+network-facing action explicit.
 
 ### Highlights
 
-- A clear input → secure local pipeline → verified output story with an exact digest
-  match and explicit statement of what the demo does and does not prove.
-- Real offline validation of key agreement, compression, parity layout, protocol
-  framing, authenticated encryption, and integrity recovery.
-- Termius Pro-inspired terminal recording generated from the executable demo.
-- Loopback-only defaults for the server, DNS bridge, local forwarding, and SOCKS.
-- Atomic owner-only artifact writes and traversal-resistant local filenames.
-- Checked protocol serialization for payload size boundaries.
-- Build metadata embedded in every release binary and exposed through `-version`.
-- Reproducible macOS and Linux archives with SHA-256 checksums.
-- Race-enabled tests, vet, formatting enforcement, CI, and CodeQL analysis.
-- Node 24-based GitHub Actions, pinned to immutable upstream commits.
-- `golang.org/x/net` v0.55.0 with no open Dependabot alerts at publication time.
+- One `ghostlink` entry point for `doctor`, `transports`, `demo`, and `version`.
+- Offline doctor with human-readable and JSON output; it opens no sockets and contacts no
+  targets or external services.
+- Deterministic transport inventory that clearly identifies user-space, raw-socket, and
+  timing/packet-signal requirements.
+- Existing real crypto/framing demo reused by the unified CLI with no simulated output.
+- Thread-safe, sorted transport registration.
+- Optional control API restricted to loopback, with bounded timeouts and request bodies.
+- Session termination now rejects read-only HTTP requests instead of mutating state.
+- Read-only `/healthz` and `/api/info` endpoints for local observability.
+- macOS and Linux release archives for AMD64 and ARM64, each with checksums.
 
-Ghostlink remains an authorized-lab research project. The release does not claim
-production readiness, stealth, or suitability for third-party systems.
+Ghostlink remains an authorized-lab transport research toolkit. It is not a TUN/VPN,
+does not claim Ligolo-ng feature parity, and does not endorse unauthorized access,
+persistence, evasion, or handling of third-party data.

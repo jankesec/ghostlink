@@ -3,6 +3,23 @@
 All notable changes to Ghostlink are documented in this file. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-06
+
+### Added
+
+- Unified `ghostlink` operator CLI with offline `doctor`, `transports`, `demo`, and
+  `version` commands plus JSON output for diagnostics and transport discovery.
+- Read-only API health and build-information endpoints.
+- Focused coverage for the CLI, operator catalog, API bind policy, and registry order.
+
+### Changed
+
+- Made the transport registry deterministic and safe for concurrent access.
+- Restricted the optional control API to loopback and added HTTP/request-size limits.
+- Required an explicit mutating method for the API session-kill action.
+- Reused one demo implementation from both the compatibility binary and unified CLI.
+- Added the unified binary to local and cross-platform release builds.
+
 ## [1.1.1] - 2026-11-06
 
 ### Changed
@@ -33,3 +50,4 @@ All notable changes to Ghostlink are documented in this file. The project follow
 
 [1.1.0]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.0
 [1.1.1]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.1
+[1.2.0]: https://github.com/jankesec/ghostlink/releases/tag/v1.2.0

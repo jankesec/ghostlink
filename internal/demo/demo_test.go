@@ -1,4 +1,4 @@
-package main
+package demo
 
 import (
 	"bytes"
@@ -8,8 +8,8 @@ import (
 
 func TestRunDemoValidatesTheOfflinePipeline(t *testing.T) {
 	var output bytes.Buffer
-	if err := runDemo(&output, false); err != nil {
-		t.Fatalf("runDemo: %v", err)
+	if err := Run(&output, false); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 
 	text := output.String()

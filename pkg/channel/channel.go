@@ -1,6 +1,10 @@
 package channel
 
-import "net"
+import (
+	"net"
+	"sort"
+	"sync"
+)
 
 type ChannelType string
 
@@ -48,33 +52,45 @@ type ChannelFactory func() Channel
 type ListenerFactory func() Listener
 
 var (
-	channels  = make(map[ChannelType]ChannelFactory)
-	listeners = make(map[ChannelType]ListenerFactory)
+	channels   = make(map[ChannelType]ChannelFactory)
+	listeners  = make(map[ChannelType]ListenerFactory)
+	registryMu sync.RWMutex
 )
 
 func Register(t ChannelType, cf ChannelFactory, lf ListenerFactory) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
 	channels[t] = cf
 	listeners[t] = lf
 }
 
 func NewChannel(t ChannelType) Channel {
-	if f, ok := channels[t]; ok {
+	registryMu.RLock()
+	f := channels[t]
+	registryMu.RUnlock()
+	if f != nil {
 		return f()
 	}
 	return nil
 }
 
 func NewListener(t ChannelType) Listener {
-	if f, ok := listeners[t]; ok {
+	registryMu.RLock()
+	f := listeners[t]
+	registryMu.RUnlock()
+	if f != nil {
 		return f()
 	}
 	return nil
 }
 
 func RegisteredChannels() []ChannelType {
-	var types []ChannelType
+	registryMu.RLock()
+	types := make([]ChannelType, 0, len(channels))
 	for t := range channels {
 		types = append(types, t)
 	}
+	registryMu.RUnlock()
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
 	return types
 }
