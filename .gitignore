@@ -3,6 +3,7 @@
 /ghostlink-client
 /bin/
 /dist/
+/.demo/
 *.exe
 *.test
 *.out

