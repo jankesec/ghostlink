@@ -3,6 +3,20 @@
 All notable changes to Ghostlink are documented in this file. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - 2026-11-06
+
+### Added
+
+- Added clear `-send-file` and `-output-dir` names for the authorized single-file
+  transfer workflow while retaining the legacy flags as compatibility aliases.
+
+### Fixed
+
+- Replaced the diagnostic-only README recording with a real loopback server/client run.
+  The demo now transfers synthetic data through the HTTP transport with a PSK and proves
+  byte-for-byte and SHA-256 equality at the receiver.
+- Updated single-file transfer logs and documentation to describe the actual workflow.
+
 ## [1.2.1] - 2026-11-06
 
 ### Fixed
@@ -61,3 +75,4 @@ All notable changes to Ghostlink are documented in this file. The project follow
 [1.1.1]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.1
 [1.2.0]: https://github.com/jankesec/ghostlink/releases/tag/v1.2.0
 [1.2.1]: https://github.com/jankesec/ghostlink/releases/tag/v1.2.1
+[1.2.2]: https://github.com/jankesec/ghostlink/releases/tag/v1.2.2

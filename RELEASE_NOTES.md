@@ -1,18 +1,18 @@
-## Ghostlink v1.2.1
+## Ghostlink v1.2.2
 
-This patch aligns the public terminal recording with Ghostlink's unified operator workflow.
-The Termius Pro-style demo now shows the actual offline diagnosis, compiled transport
-inventory, and protected pipeline validation in sequence.
+This patch replaces the diagnostic-only animation with a real application demonstration.
 
-### Highlights
+### What the demo now proves
 
-- Re-recorded `docs/demo.gif` and `docs/demo.mp4` in the black Termius Pro-inspired theme.
-- The 21-second recording now demonstrates `ghostlink doctor`, `ghostlink transports`,
-  and `ghostlink demo` rather than invoking the legacy standalone demo command.
-- Every displayed result comes from the real compiled project; no output is scripted.
-- Removed workstation-specific paths from doctor output and added regression coverage.
-- macOS and Linux release archives for AMD64 and ARM64, each with checksums.
+- The actual `ghostlink-server` listens only on `127.0.0.1` using the HTTP transport.
+- The actual `ghostlink-client` reads and transfers one synthetic authorized-lab file.
+- The transfer uses the application's PSK-protected protocol path.
+- The receiver writes the artifact with Ghostlink's owner-only file handling.
+- `cmp` and SHA-256 verify the received bytes exactly match the sender.
 
-Ghostlink remains an authorized-lab transport research toolkit. It is not a TUN/VPN,
-does not claim Ligolo-ng feature parity, and does not endorse unauthorized access,
-persistence, evasion, or handling of third-party data.
+The recording uses the clearer `-send-file` and `-output-dir` flags introduced in this
+release. The previous `-exfil` and `-exfil-dir` names remain compatibility aliases.
+
+The release includes checksummed macOS and Linux archives for AMD64 and ARM64. Ghostlink
+remains an authorized-lab research toolkit and the demonstration contacts no external
+system or service.

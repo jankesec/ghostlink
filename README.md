@@ -12,9 +12,9 @@
 Ghostlink is a Go research project for examining framing, authenticated encryption,
 parity layouts, and multiple transport implementations inside controlled environments.
 
-<img src="docs/demo.gif" alt="Ghostlink offline pipeline validation in a Termius Pro-style terminal" width="100%">
+<img src="docs/demo.gif" alt="Ghostlink real loopback file transfer in a Termius Pro-style terminal" width="100%">
 
-<sub>The recording shows the real unified workflow: offline environment diagnosis, compiled transport discovery, then a protected synthetic record returning byte-for-byte intact. Every stage opens zero sockets.</sub>
+<sub>The recording runs the real server and client over 127.0.0.1, transfers one synthetic lab record through the HTTP transport with a PSK, then proves the received bytes and SHA-256 digest match.</sub>
 
 </div>
 
@@ -191,7 +191,7 @@ go run ./cmd/server \
   -channel http \
   -addr 127.0.0.1:18080 \
   -key lab-only-key \
-  -exfil-dir ./lab-output
+  -output-dir ./lab-output
 ```
 
 Sender:
@@ -202,7 +202,7 @@ go run ./cmd/client \
   -channel http \
   -addr 127.0.0.1:18080 \
   -key lab-only-key \
-  -exfil /tmp/ghostlink-lab.txt
+  -send-file /tmp/ghostlink-lab.txt
 ```
 
 Received artifacts are created with owner-only permissions. The server, bridge, local
@@ -279,8 +279,9 @@ complete, stealthy, or suitable for operational use.
 
 ## Demo maintenance
 
-The README animation is generated from [`docs/demo.tape`](docs/demo.tape) and runs the
-real offline validator:
+The README animation is generated from [`docs/demo.tape`](docs/demo.tape). It builds and
+runs the real server and client on loopback, transfers only a synthetic record, compares
+the sender and receiver files, then removes its temporary `.demo` directory:
 
 ```bash
 make record-demo

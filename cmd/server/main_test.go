@@ -54,3 +54,12 @@ func TestSanitizeFileNameRemovesPathTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveOutputDirPrefersCurrentFlag(t *testing.T) {
+	if got := resolveOutputDir("legacy", "lab-output"); got != "lab-output" {
+		t.Fatalf("resolveOutputDir = %q", got)
+	}
+	if got := resolveOutputDir("legacy", ""); got != "legacy" {
+		t.Fatalf("legacy resolveOutputDir = %q", got)
+	}
+}
