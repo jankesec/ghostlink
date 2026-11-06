@@ -47,7 +47,7 @@ func Diagnose() Report {
 	} else if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
 		report.Checks = append(report.Checks, Check{"working directory", "WARN", "directory is unavailable"})
 	} else {
-		report.Checks = append(report.Checks, Check{"working directory", "PASS", cwd})
+		report.Checks = append(report.Checks, Check{"working directory", "PASS", "accessible"})
 	}
 
 	report.Checks = append(report.Checks,

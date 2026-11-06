@@ -1,21 +1,16 @@
-## Ghostlink v1.2.0
+## Ghostlink v1.2.1
 
-This release makes Ghostlink easier to understand and safer to operate in an authorized
-lab. The new unified command puts discovery and diagnostics first while keeping every
-network-facing action explicit.
+This patch aligns the public terminal recording with Ghostlink's unified operator workflow.
+The Termius Pro-style demo now shows the actual offline diagnosis, compiled transport
+inventory, and protected pipeline validation in sequence.
 
 ### Highlights
 
-- One `ghostlink` entry point for `doctor`, `transports`, `demo`, and `version`.
-- Offline doctor with human-readable and JSON output; it opens no sockets and contacts no
-  targets or external services.
-- Deterministic transport inventory that clearly identifies user-space, raw-socket, and
-  timing/packet-signal requirements.
-- Existing real crypto/framing demo reused by the unified CLI with no simulated output.
-- Thread-safe, sorted transport registration.
-- Optional control API restricted to loopback, with bounded timeouts and request bodies.
-- Session termination now rejects read-only HTTP requests instead of mutating state.
-- Read-only `/healthz` and `/api/info` endpoints for local observability.
+- Re-recorded `docs/demo.gif` and `docs/demo.mp4` in the black Termius Pro-inspired theme.
+- The 21-second recording now demonstrates `ghostlink doctor`, `ghostlink transports`,
+  and `ghostlink demo` rather than invoking the legacy standalone demo command.
+- Every displayed result comes from the real compiled project; no output is scripted.
+- Removed workstation-specific paths from doctor output and added regression coverage.
 - macOS and Linux release archives for AMD64 and ARM64, each with checksums.
 
 Ghostlink remains an authorized-lab transport research toolkit. It is not a TUN/VPN,
