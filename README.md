@@ -33,12 +33,32 @@ recovery. Internal capability scores are routing heuristics, not independently m
 evasion ratings. Do not deploy Ghostlink on third-party systems or networks without
 explicit written authorization.
 
-## Start with the offline demo
+## Start here
+
+Ghostlink now has one safe discovery command. It does not start a listener or contact a
+target unless you deliberately move to the separate server or client binaries.
+
+```bash
+make build
+./bin/ghostlink doctor
+./bin/ghostlink transports
+./bin/ghostlink demo
+```
+
+`doctor` reports the build, platform, protocol version, compiled transport catalog, and
+safe-default posture without opening a socket. Add `--json` to `doctor` or `transports`
+for scripts and CI.
+
+The operator model borrows the strongest usability idea from modern tunnel tools: one
+obvious entry point, discoverable commands, and visible environment requirements. It does
+not turn Ghostlink into a VPN/TUN interface or claim feature parity with Ligolo-ng.
+
+## Understand the offline demo
 
 The safest way to understand the project is the deterministic local validation command:
 
 ```bash
-go run ./cmd/demo
+go run ./cmd/ghostlink demo
 ```
 
 It exercises real project packages end to end:
@@ -91,7 +111,8 @@ detection in a real network.
 
 | Component | Location | Responsibility |
 | --- | --- | --- |
-| Offline validator | `cmd/demo` | Safe, deterministic pipeline demonstration |
+| Operator CLI | `cmd/ghostlink` | Offline doctor, transport discovery, demo, and version |
+| Offline validator | `internal/demo`, `cmd/demo` | Reusable pipeline validation and compatibility wrapper |
 | Receiver/operator | `cmd/server` | Session handling and authorized artifact receipt |
 | Sender/client | `cmd/client` | Transport selection and protocol initiation |
 | DNS bridge | `bridge` | Lab DNS query decoding for controlled SQL testing |
@@ -135,12 +156,13 @@ Every executable supports `-version`. Release builds include the version, source
 commit, and UTC build date:
 
 ```bash
-./bin/ghostlink-demo -version
+./bin/ghostlink version
 ```
 
 The binaries are written to `./bin/`:
 
 ```text
+bin/ghostlink
 bin/ghostlink-demo
 bin/ghostlink-server
 bin/ghostlink-client
@@ -223,16 +245,21 @@ obfuscation is not a substitute for authentication, encryption, segmentation, or
 Review the exact flags available in the checked-out version:
 
 ```bash
+go run ./cmd/ghostlink help
+go run ./cmd/ghostlink doctor
+go run ./cmd/ghostlink transports
 go run ./cmd/server -h
 go run ./cmd/client -h
-go run ./bridge -h
-go run ./cmd/demo -h
 ```
 
 High-level modes present in the repository include single-file and glob transfer,
 interactive sessions, local forwarding, SOCKS, multi-transport experiments, dead-drop
 adapters, and DNS bridge support. These modes are intentionally not presented as turnkey
 deployment recipes; configure them only inside an approved exercise plan.
+
+When enabled with `ghostlink-server -api 127.0.0.1:8888`, the control API is restricted
+to loopback, applies bounded HTTP timeouts and request bodies, and exposes read-only
+`/healthz` and `/api/info` endpoints. Non-loopback API binds fail closed.
 
 ## Defensive research context
 

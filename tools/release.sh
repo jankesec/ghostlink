@@ -19,7 +19,7 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
 	stage="$dist_dir/$archive"
 	mkdir -p "$stage"
 
-	for command in demo server client bridge; do
+	for command in ghostlink demo server client bridge; do
 		package="./cmd/$command"
 		if [ "$command" = "bridge" ]; then
 			package="./bridge"

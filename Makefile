@@ -11,6 +11,7 @@ LDFLAGS := -s -w \
 
 build:
 	mkdir -p $(BIN_DIR)
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/ghostlink ./cmd/ghostlink
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/ghostlink-demo ./cmd/demo
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/ghostlink-server ./cmd/server
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/ghostlink-client ./cmd/client
