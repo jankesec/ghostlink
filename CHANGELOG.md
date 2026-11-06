@@ -3,6 +3,15 @@
 All notable changes to Ghostlink are documented in this file. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-11-06
+
+### Fixed
+
+- Re-recorded the README demo from the unified CLI so it now demonstrates `doctor`,
+  `transports`, and the real offline pipeline instead of the legacy demo command.
+- Removed the local filesystem path from doctor output to keep diagnostics deterministic
+  and public recordings free of workstation-specific details.
+
 ## [1.2.0] - 2026-11-06
 
 ### Added
@@ -51,3 +60,4 @@ All notable changes to Ghostlink are documented in this file. The project follow
 [1.1.0]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.0
 [1.1.1]: https://github.com/jankesec/ghostlink/releases/tag/v1.1.1
 [1.2.0]: https://github.com/jankesec/ghostlink/releases/tag/v1.2.0
+[1.2.1]: https://github.com/jankesec/ghostlink/releases/tag/v1.2.1

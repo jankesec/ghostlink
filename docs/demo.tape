@@ -8,7 +8,7 @@ Set Shell        zsh
 Set FontFamily   "Menlo"
 Set FontSize     14
 Set Width        1200
-Set Height       640
+Set Height       720
 Set Padding      20
 Set Margin       0
 Set MarginFill   "#000000"
@@ -25,7 +25,23 @@ Type "export PS1='%F{cyan}security@lab%f %F{magenta}~/ghostlink%f %# '; clear"  
 Sleep 700ms
 Show
 
-Type "go run ./cmd/demo"
+Type "go run ./cmd/ghostlink doctor"
+Sleep 250ms
+Enter
+Sleep 4s
+
+Type "clear"
+Enter
+Sleep 500ms
+Type "go run ./cmd/ghostlink transports"
+Sleep 250ms
+Enter
+Sleep 5s
+
+Type "clear"
+Enter
+Sleep 500ms
+Type "go run ./cmd/ghostlink demo"
 Sleep 250ms
 Enter
 Sleep 8s

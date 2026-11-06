@@ -19,4 +19,9 @@ func TestDiagnoseIsExplicitlyOffline(t *testing.T) {
 	if !report.Healthy() {
 		t.Fatal("doctor unexpectedly unhealthy")
 	}
+	for _, check := range report.Checks {
+		if check.Name == "working directory" && check.Detail != "accessible" {
+			t.Fatalf("working directory detail is not deterministic: %q", check.Detail)
+		}
+	}
 }

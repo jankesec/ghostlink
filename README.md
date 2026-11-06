@@ -14,7 +14,7 @@ parity layouts, and multiple transport implementations inside controlled environ
 
 <img src="docs/demo.gif" alt="Ghostlink offline pipeline validation in a Termius Pro-style terminal" width="100%">
 
-<sub>The demo answers one question: can a synthetic record complete Ghostlink's local protected pipeline and return byte-for-byte intact? It opens no sockets and contacts no external service.</sub>
+<sub>The recording shows the real unified workflow: offline environment diagnosis, compiled transport discovery, then a protected synthetic record returning byte-for-byte intact. Every stage opens zero sockets.</sub>
 
 </div>
 
